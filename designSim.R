@@ -12,12 +12,6 @@ library(naniar)
 library(rbenchmark)
 library(dae)
 
-print("this is a test")
-print("this is another test")
-print("this is hopefully the final test")
-
-
-
 # Upload Geno Data --------------------------------------------------------
 
 geno <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
