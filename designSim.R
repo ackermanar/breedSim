@@ -9,8 +9,10 @@ library(asremlPlus)
 library(rrBLUP)
 library(gaston)
 library(naniar)
+library(FieldSimR)
+library(MASS)
 library(rbenchmark)
-library(dae)
+
 
 # Upload Geno Data --------------------------------------------------------
 
@@ -35,12 +37,11 @@ dfGenoT <- t(dfGeno2)
 
 # Simulate Marker Matrix --------------------------------------------------
 
-traits <- c("pheno1")
-snpNum <- length(colnames(dfGeno2))
-traitBySNPNum <- length(traits)*length(colnames(dfGeno2)) #multiplies snp number by amount of traits
-names <- list(traits, colnames(dfGeno2))
-markerEffect <-  rnorm(snpNum, mean = 0, sd = sqrt((1/snpNum)))
-markerMat <- matrix(markerEffect, nrow = 1, ncol = snpNum,  dimnames = names)
+sites <- rand_cor_mat(10, min_cor = 0.2, max_cor = 0.8)
+cov <- rmvnorm(length(colnames(dfGeno2)), sigma = sites)
+
+breedVal <- data.table((dfGeno2 %*% cov), keep.rownames = "germplasmName") %>%
+  setnames(2, "bv")
 
 # Simulate breeding values -----------------------------------------------------
 
