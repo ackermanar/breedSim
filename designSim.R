@@ -37,11 +37,39 @@ dfGenoT <- t(dfGeno2)
 
 # Simulate Marker Matrix --------------------------------------------------
 
-sites <- rand_cor_mat(10, min_cor = 0.2, max_cor = 0.8)
-cov <- rmvnorm(length(colnames(dfGeno2)), sigma = sites)
+a<- matrix(c(1,0,0,1), ncol=2)
+b<- matrix(c(1,.9,.9,1), ncol=2)
+mat1<- kronecker(a,b)
+diagTrials <- bdiag(replicate(10,mat1,simplify=FALSE))
+#make a block matrix for the environment correlations only
+e<- matrix(c(0,1,1,0), ncol=2)
+f<- matrix(c(.4,.4,.4,.4), ncol=2)
+mat2<- kronecker(e,f)
+diagLocs <- bdiag(replicate(10,mat2,simplify=FALSE))
+
+diagStudies = diagLocs + diagTrials
+
+corMat<- mat2+mat1
+diagStudies <- bdiag(replicate(10,corMat,simplify=FALSE))
+
+trials <- rand_cor_mat(2, min_cor = 0.8, max_cor = .99)
+diagTrials <- bdiag(replicate(10,trials,simplify=FALSE))
+
+locations <- rand_cor_mat(2, min_cor = 0.35, max_cor = .45)
+diagLocs <- bdiag(replicate(10,locations,simplify=FALSE))
+t(diagLocs)
+diagStudies <- diagTrials + diagLocs
+
+cor2cov_1 <- function(R,S){
+  diag(S) %*% R %*% diag(S)
+}
+
+rrCov <- cor2cov_1(diagStudies, rep(1/12505, ncol(diagStudies)))
+rrCov
+
 
 breedVal <- data.table((dfGeno2 %*% cov), keep.rownames = "germplasmName") %>%
-  setnames(2, "bv")
+  setnames(c(2:3), "bv", skip_absent = TRUE)
 
 # Simulate breeding values -----------------------------------------------------
 
