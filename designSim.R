@@ -1,5 +1,5 @@
 
-setwd("/Users/ackerman/UIUC/p.rep_pred/asreml_pred_YT22")
+setwd("/Users/ackerman/Documents/GitHub/Trial_Design_Project")
 
 library(tidyverse)
 library(magrittr)
