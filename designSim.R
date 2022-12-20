@@ -16,10 +16,15 @@ library(rbenchmark)
 
 # Enter variables ---------------------------------------------------------
 
-#location number
 n = 5
+t = .9
+l = .4
 trial = n*2
-
+nloc <- n
+tcorr <- t
+ecorr <- l
+studyVar <- .25
+trialVar <- .25
 
 # Upload Geno Data --------------------------------------------------------
 
@@ -75,7 +80,8 @@ breedValbyLoc <- function(n,t,l){
            setnames(old = 1:ncol(cov)+1, rep(str_c("study", rep(1:n, each = 2), "_", rep(c("prlm", "adv"), each= 1:n)))))
          }
 
-breedVal <- breedValbyLoc(5,.9,.4) #Function 2: n = number of studies, t = correlation between trials, l = correlation between locations
+breedVal <- breedValbyLoc(n,t,l) #Function 2: n = number of studies, t = correlation between trials, l = correlation between locations
+
 
 # Add cohort label for each year ------------------------------------------
 
@@ -145,11 +151,10 @@ breedVal4 <- breedVal4[c("S1", "S2"), test := "prelim", on = "cohort"][
                        c("S3", "S4"), test := "adv", on = "cohort"]
 breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
 
+# Add error and effect for study and trial -------------------------------------------
 
-# Add error for study and trial -------------------------------------------
-
-muStudy <- rnorm(n, mean = rnorm(1, mean = mean(breedVal4$bv), sd = sqrt(var(breedVal4$bv))), sd = sqrt(var(breedVal4$bv)))
-muTest <- rnorm(n*2, mean = rnorm(1, mean = mean(breedVal4$bv), sd = sqrt(var(breedVal4$bv))), sd = sqrt(var(breedVal4$bv)))
+studyErr <- rnorm(n, mean =  0, sd = studyVar)
+trialErr <- rnorm(n*2, mean = 0, sd = trialVar)
 
 split <- split(breedVal4, list(breedVal4$study, breedVal4$test))
 
@@ -157,7 +162,8 @@ breedVal5 <- data.table()
 
 for (i in 1:trial) {
 group <- split[[i]]
-group <- group[, trialError := rnorm(nrow(group), muTest[i], sd = sqrt(var(breedVal4$bv)))]
+group <- group[, trialEffect := rep(rnorm(1, trialErr[i], sd = trialVar), times = nrow(group))]
+group <- group[, trialError := rnorm(nrow(group), trialErr[i], sd = trialVar)]
 breedVal5 <- rbind(breedVal5, group)
 }
 
@@ -167,9 +173,12 @@ breedVal5 <- data.table()
 
 for (i in 1:n) {
   group <- split[[i]]
-  group <- group[, studyError := rnorm(nrow(group), muStudy[i], sd = sqrt(var(breedVal4$bv)))]
+  group <- group[, studyEffect := rep(rnorm(1, trialErr[i], sd = studyVar), times = nrow(group))]
+  group <- group[, studyError := rnorm(nrow(group), studyErr[i], sd = studyVar)]
   breedVal5 <- rbind(breedVal5, group)
 }
+
+breedVal5[ ,aggBV := mean(bv), by = germplasmName]
 
 # Create Pheno ------------------------------------------------------------
 
