@@ -38,46 +38,37 @@ dfGenoT <- t(dfGeno2)
 # Simulate Marker Matrix --------------------------------------------------
 
   # Function 1: convert correlation matrix to correlation matrix
-  # R = correlation matrix, S = Standard deviation
 
 cor2cov_1 <- function(R,S){
   diag(S) %*% R %*% diag(S)
 }
 
   # Function 2: determine breeding values by location
-  # n = number of studies, t = correlation between trials, l = correlation between locations
 
 breedValbyLoc <- function(n,t,l){
   
-nloc <- n
-tcorr <- t
-ecorr <- l
+  nloc <- n
+  tcorr <- t
+  ecorr <- l
+  
+  a <- matrix(rep(0,nloc*nloc), ncol=nloc)
+  diag(a)<-1
+  b <- matrix(c(1,tcorr,tcorr,1), ncol=2)
+  amat1 <- kronecker(a,b)
+  
+  #make a block matrix for the environment correlations only
+  
+  amat1[which(amat1==0)] <- ecorr
+  amat1 <- cor2cov_1(amat1, rep(1, nrow(amat1)))   # Function 1: R = correlation matrix, S = Standard deviation
+  cov <- mvrnorm(n=ncol(dfGeno2), mu =rep(0, ncol(amat1)), Sigma = amat1)
+  
+  c <- n*2
+  
+  return(data.table((dfGeno2 %*% cov), keep.rownames = "germplasmName") %>%
+           setnames(old = 1:ncol(cov)+1, rep(str_c("study", rep(1:n, each = 2), "_", rep(c("prlm", "adv"), each= 1:n)))))
+         }
 
-a <- matrix(rep(0,nloc*nloc), ncol=nloc)
-diag(a)<-1
-b <- matrix(c(1,tcorr,tcorr,1), ncol=2)
-amat1 <- kronecker(a,b)
-
-#make a block matrix for the environment correlations only
-
-amat1[which(amat1==0)] <- ecorr
-amat1 <- cor2cov_1(amat1, rep(1, nrow(amat1)))
-cov <- mvrnorm(n=ncol(dfGeno2), mu =rep(0, ncol(amat1)), Sigma = amat1)
-
-return(data.table((dfGeno2 %*% cov), keep.rownames = "germplasmName") %>%
-  setnames(old = 1:ncol(cov)+1, rep("study", ncol(cov))))
-}
-
-breedVals <- breedValbyLoc(5,.9,.4)
-
-# Simulate breeding values -----------------------------------------------------
-
-markerVec <- as.matrix(markerMat[1,], rownames = "germplasmName")
-
-breedVal <- data.table((dfGeno2 %*% markerVec), keep.rownames = "germplasmName") %>%
-  setnames(2, "bv")
-
-breedVal <- breedVal[ ,trait := "pheno1"]
+breedVal <- breedValbyLoc(5,.9,.4) #Function 2: n = number of studies, t = correlation between trials, l = correlation between locations
 
 # Add cohort label for each year ------------------------------------------
 
@@ -92,7 +83,7 @@ breedVal2 <- breedVal[, plotDes := "check"][
 # remove check lines that are not being used in the analysis
 
 checks <- breedVal2[plotDes == "check", ][
-  !germplasmName %in% c("Kaskaskia", "PIONEER25R47", "02-18228", "07-19334")]
+  !germplasmName %in% c("Kaskaskia", "PIONEER25R47", "02-18228", "07-19334")] # Insert checks being used for analysis here
 
 breedVal2 <- breedVal2[! germplasmName %in% checks$germplasmName]
 
@@ -105,48 +96,49 @@ breedVal2 <- breedVal2[str_which(germplasmName, "^18-"), cohort := "S4"][
 
 # Implement checks into cohorts -------------------------------------------
 
-breedVal3 <- rbindlist(list(
-  rep(breedVal2[is.na(cohort),][,cohort := "S1"], times = 10),
-  rep(breedVal2[is.na(cohort),][,cohort := "S2"], times = 10),
-  rep(breedVal2[is.na(cohort),][,cohort := "S3"], times = 10),
-  rep(breedVal2[is.na(cohort),][,cohort := "S4"], times = 10),
+addChecks <- function(c){
+
+  breedVal3 <- rbindlist(list(
+  rep(breedVal2[is.na(cohort),][,cohort := "S1"], times = c),
+  rep(breedVal2[is.na(cohort),][,cohort := "S2"], times = c),
+  rep(breedVal2[is.na(cohort),][,cohort := "S3"], times = c),
+  rep(breedVal2[is.na(cohort),][,cohort := "S4"], times = c),
   breedVal2[plotDes == "exp",]))
 
 
+ return(breedVal3["check", reps := c, on = "plotDes"])
+}
+
+breedVal3 <- addChecks(10) # Enter amount of checks per cohort s1 = cohort, 1/ 2021
+
 # Replicate Entries -------------------------------------------------------
 
-breedVal4 <- rbindlist(
-  list(rep(breedVal2[cohort == "check"], times = 10),
-       rep(breedVal2[cohort == "S1"], times = 1),
-       rep(breedVal2[cohort == "S2"], times = 2),
-       rep(breedVal2[cohort == "S3"], times = 3),
-       rep(breedVal2[cohort == "S4"], times = 4)))
+addReplicates <- function(s1,s2,s3,s4){
+  
+  breedVal4 <- rbindlist(
+  list(rep(breedVal3[cohort == "S1"], each = s1),
+       rep(breedVal3[cohort == "S2"], each = s2),
+       rep(breedVal3[cohort == "S3"], each = s3),
+       rep(breedVal3[cohort == "S4"], each = s4)))
 
-breedVal4 <- breedVal3[, reps := 1][
-  "S2", reps := 2, on = "cohort"][
-    "S3", reps := 3, on = "cohort"][
-      "S4", reps := 4, on = "cohort"][
-        "check", reps := 10, on = "cohort"
-      ]
+return(breedVal4[, reps := s1][
+  "S2", reps := s2, on = "cohort"][
+    "S3", reps := s3, on = "cohort"][
+      "S4", reps := s4, on = "cohort"]
+      )}
+
+breedVal4 <- addReplicates(1,2,3,4) # Enter amount of replication per cohort, s1 = cohort 1/ 2021
 
 # Replicate for trial/loc -------------------------------------------------
 
-breedVal5 <- rbind(mutate(breedVal4, trial = "T1"), mutate(breedVal4, trial = "T2"),
-                   mutate(breedVal4, trial = "T3"), mutate(breedVal3, trial = "T4"), mutate(breedVal4, trial = "T5"))
-
-trialCount <- breedVal5 %>% count(trial)
-
-breedVal4 <- breedVal5["T1", trialResid := rnorm(sum(trialCount[1,2]),
-                                                 mean = 1, sd = sqrt(var(breedVal$bv))), on = "trial"][
-                                                   "T2", rcbdResid := rnorm(sum(trialCount[2,2]),
-                                                                            mean = 2, sd = sqrt(var(breedVal$bv))), on = "trial"][
-                                                                              "T3", rcbdResid := rnorm(sum(trialCount[3,2]),
-                                                                                                       mean = 3, sd = sqrt(var(breedVal$bv))), on = "trial"][
-                                                                                                         "T4", rcbdResid := rnorm(sum(trialCount[4,2]),
-                                                                                                                                  mean = 4, sd = sqrt(var(breedVal$bv))), on = "trial"][
-                                                                                                                                    "T5", rcbdResid := rnorm(sum(trialCount[5,2]),
-                                                                                                                                                             mean = 5, sd = sqrt(var(breedVal$bv))), on = "trial"]
-
+prelim <- breedVal4[cohort == "S1" | cohort == "S2", ][ ,.SD, .SDcols = ! patterns("adv")]
+colnames(prelim)<-gsub("_prlm","",colnames(prelim))
+adv <- breedVal4[cohort == "S3" | cohort == "S4", ][ ,.SD, .SDcols = ! patterns("prlm")]
+colnames(adv)<-gsub("_adv","",colnames(adv))
+breedVal5 <- rbind(prelim, adv)
+breedVal5 <- breedVal5[c("S1", "S2"), test := "prelim", on = "cohort"][
+                       c("S3", "S4"), test := "adv", on = "cohort"]
+breedVal5 <- melt.data.table(breedVal5, measure.vars = patterns("study"), value.name = "bv")
 
 # Add error for each entry ------------------------------------------------
 
@@ -165,7 +157,7 @@ breedVal6 <- breedVal6[  , rcbdResid := rnorm(length(breedVal6[[1]]), mean = 0, 
 
 # Create Pheno ------------------------------------------------------------
 
-breedVal7 <- breedVal6[, prepPheno := bv +trialResid + prepResid][, rcbdPheno := bv + trialResid + rcbdResid]
+breedVal7 <- breedVal6[, prepPheno := bv + trialResid + prepResid][, rcbdPheno := bv + trialResid + rcbdResid]
 
 breedSim <- as_tibble(breedVal7) %>%
   mutate(across(c(1:6), factor))
