@@ -171,21 +171,6 @@ for (i in 1:n) {
   breedVal5 <- rbind(breedVal5, group)
 }
 
-# Add error for each entry ------------------------------------------------
-
-breedVal5 <- breedVal4["", prepResid := rnorm(length(breedVal4[[1]]),
-                                             mean = 0, sd = sqrt(var(breedVal$bv)))]
-
-cohortCount <- breedVal6 %>% count(cohort)
-prelim <- sum(cohortCount[cohort == "S1" | cohort == "S2", 2])
-adv <- sum(cohortCount[cohort == "S3" | cohort == "S4", 2])
-
-breedVal6 <- breedVal6[  , rcbdResid := rnorm(length(breedVal6[[1]]), mean = 0, sd = sqrt(var(breedVal$bv)))][
-  c("S1", "S2"), rcbdResid := rnorm(prelim,
-                                    mean = 1, sd = sqrt(var(breedVal$bv))), on = "cohort"][
-                                      c("S3", "S4"), rcbdResid := rnorm(adv,
-                                                                        mean = 2, sd = sqrt(var(breedVal$bv))), on = "cohort"]
-
 # Create Pheno ------------------------------------------------------------
 
 breedVal7 <- breedVal6[, prepPheno := bv + trialResid + prepResid][, rcbdPheno := bv + trialResid + rcbdResid]
