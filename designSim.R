@@ -94,42 +94,40 @@ breedVal2 <- breedVal2[str_which(germplasmName, "^18-"), cohort := "S4"][
         str_which(germplasmName, "^21-"), cohort := "S1"][
           str_which(germplasmName, "IL2021-"), cohort := "S1"]
 
-# Implement checks into cohorts -------------------------------------------
+# Replicate all entries -------------------------------------------
 
-addChecks <- function(c){
+replication <- function(c,s1,s2,s3,s4){
 
-  breedVal3 <- rbindlist(list(
+  checks <- rbindlist(list(
   rep(breedVal2[is.na(cohort),][,cohort := "S1"], times = c),
   rep(breedVal2[is.na(cohort),][,cohort := "S2"], times = c),
   rep(breedVal2[is.na(cohort),][,cohort := "S3"], times = c),
-  rep(breedVal2[is.na(cohort),][,cohort := "S4"], times = c),
-  breedVal2[plotDes == "exp",]))
+  rep(breedVal2[is.na(cohort),][,cohort := "S4"], times = c)
+  ))
 
 
- return(breedVal3["check", reps := c, on = "plotDes"])
+ checks <- checks[, reps := c]
+
+ exp <- rbindlist(
+   list(rep(breedVal2[cohort == "S1" & plotDes != "check"], each = s1),
+        rep(breedVal2[cohort == "S2" & plotDes != "check"], each = s2),
+        rep(breedVal2[cohort == "S3" & plotDes != "check"], each = s3),
+        rep(breedVal2[cohort == "S4" & plotDes != "check"], each = s4)))
+ 
+exp <- exp[, reps := s1][
+   "S2", reps := s2, on = "cohort"][
+     "S3", reps := s3, on = "cohort"][
+       "S4", reps := s4, on = "cohort"]
+
+ return(rbind(checks, exp))
+ 
 }
 
-breedVal3 <- addChecks(10) # Enter amount of checks per cohort s1 = cohort, 1/ 2021
+# Enter amount of replication for checks per cohort, and S1, S2, S3, S4 entries
+breedVal3 <- replication(10, 1, 2, 3, 4) 
 
-# Replicate Entries -------------------------------------------------------
+# Seperate BVs by breeding and advanced and melt data frame ---------------
 
-addReplicates <- function(s1,s2,s3,s4){
-  
-  breedVal4 <- rbindlist(
-  list(rep(breedVal3[cohort == "S1"], each = s1),
-       rep(breedVal3[cohort == "S2"], each = s2),
-       rep(breedVal3[cohort == "S3"], each = s3),
-       rep(breedVal3[cohort == "S4"], each = s4)))
-
-return(breedVal4[, reps := s1][
-  "S2", reps := s2, on = "cohort"][
-    "S3", reps := s3, on = "cohort"][
-      "S4", reps := s4, on = "cohort"]
-      )}
-
-breedVal4 <- addReplicates(1,2,3,4) # Enter amount of replication per cohort, s1 = cohort 1/ 2021
-
-# Replicate for trial/loc -------------------------------------------------
 
 prelim <- breedVal4[cohort == "S1" | cohort == "S2", ][ ,.SD, .SDcols = ! patterns("adv")]
 colnames(prelim)<-gsub("_prlm","",colnames(prelim))
@@ -138,7 +136,7 @@ colnames(adv)<-gsub("_adv","",colnames(adv))
 breedVal5 <- rbind(prelim, adv)
 breedVal5 <- breedVal5[c("S1", "S2"), test := "prelim", on = "cohort"][
                        c("S3", "S4"), test := "adv", on = "cohort"]
-breedVal5 <- melt.data.table(breedVal5, measure.vars = patterns("study"), value.name = "bv")
+breedVal5 <- melt.data.table(breedVal5, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
 
 # Add error for each entry ------------------------------------------------
 
