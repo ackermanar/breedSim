@@ -14,6 +14,13 @@ library(MASS)
 library(rbenchmark)
 
 
+# Enter variables ---------------------------------------------------------
+
+#location number
+n = 5
+trial = n*2
+
+
 # Upload Geno Data --------------------------------------------------------
 
 geno <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
@@ -126,21 +133,47 @@ exp <- exp[, reps := s1][
 # Enter amount of replication for checks per cohort, and S1, S2, S3, S4 entries
 breedVal3 <- replication(10, 1, 2, 3, 4) 
 
-# Seperate BVs by breeding and advanced and melt data frame ---------------
+# Seperate BVs by breeding and advanced then melt data frame ---------------
+# Look into cleaning this chunk up - messy 
 
-
-prelim <- breedVal4[cohort == "S1" | cohort == "S2", ][ ,.SD, .SDcols = ! patterns("adv")]
+prelim <- breedVal3[cohort == "S1" | cohort == "S2", ][ ,.SD, .SDcols = ! patterns("adv")]
 colnames(prelim)<-gsub("_prlm","",colnames(prelim))
-adv <- breedVal4[cohort == "S3" | cohort == "S4", ][ ,.SD, .SDcols = ! patterns("prlm")]
+adv <- breedVal3[cohort == "S3" | cohort == "S4", ][ ,.SD, .SDcols = ! patterns("prlm")]
 colnames(adv)<-gsub("_adv","",colnames(adv))
-breedVal5 <- rbind(prelim, adv)
-breedVal5 <- breedVal5[c("S1", "S2"), test := "prelim", on = "cohort"][
+breedVal4 <- rbind(prelim, adv)
+breedVal4 <- breedVal4[c("S1", "S2"), test := "prelim", on = "cohort"][
                        c("S3", "S4"), test := "adv", on = "cohort"]
-breedVal5 <- melt.data.table(breedVal5, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
+breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
+
+
+# Add error for study and trial -------------------------------------------
+
+muStudy <- rnorm(n, mean = rnorm(1, mean = mean(breedVal4$bv), sd = sqrt(var(breedVal4$bv))), sd = sqrt(var(breedVal4$bv)))
+muTest <- rnorm(n*2, mean = rnorm(1, mean = mean(breedVal4$bv), sd = sqrt(var(breedVal4$bv))), sd = sqrt(var(breedVal4$bv)))
+
+split <- split(breedVal4, list(breedVal4$study, breedVal4$test))
+
+breedVal5 <- data.table()
+
+for (i in 1:trial) {
+group <- split[[i]]
+group <- group[, trialError := rnorm(nrow(group), muTest[i], sd = sqrt(var(breedVal4$bv)))]
+breedVal5 <- rbind(breedVal5, group)
+}
+
+split <- split(breedVal5, list(breedVal5$study))
+
+breedVal5 <- data.table()
+
+for (i in 1:n) {
+  group <- split[[i]]
+  group <- group[, studyError := rnorm(nrow(group), muStudy[i], sd = sqrt(var(breedVal4$bv)))]
+  breedVal5 <- rbind(breedVal5, group)
+}
 
 # Add error for each entry ------------------------------------------------
 
-breedVal6 <- breedVal4[ , prepResid := rnorm(length(breedVal4[[1]]),
+breedVal5 <- breedVal4["", prepResid := rnorm(length(breedVal4[[1]]),
                                              mean = 0, sd = sqrt(var(breedVal$bv)))]
 
 cohortCount <- breedVal6 %>% count(cohort)
