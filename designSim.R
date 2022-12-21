@@ -16,38 +16,50 @@ library(rbenchmark)
 
 # Enter variables ---------------------------------------------------------
 
-n = 5
-t = .9
-l = .4
-trial = n*2
-nloc <- n
-tcorr <- t
-ecorr <- l
-studyVar <- .25
-trialVar <- .25
+nloc <- 5 # number of studies
+ntrial <- nloc * 2 # number of trials 
+tcorr <- .9 # correlations between trials within locations
+ecorr <- .4 # correlations between locations
 
-# Upload Geno Data --------------------------------------------------------
 
-geno <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
-geno@ped$id <- sub("^.*:", "", geno@ped$id)
+# Enter replication amount for lines within cohorts and checks
+
+c = 10
+s1 = 1
+s2 = 2
+s3 = 3
+s4 = 4
+
+# enter desired heritability
+ 
+ = .5
+
+
+#Upload gbs data
+genoVCF <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
+genoVCF@ped$id <- sub("^.*:", "", genoVCF@ped$id)
 
 #correct the line names
 
 yrseries <- gsub("20", "", as.character(2000:2019))
 for(i in 1:length(yrseries)){
-  geno@ped$id<- gsub(paste("IL", yrseries[i], sep=""), yrseries[i], geno@ped$id)
+  genoVCF@ped$id<- gsub(paste("IL", yrseries[i], sep=""), yrseries[i], genoVCF@ped$id)
 }
-geno@ped$id <- gsub('IL20', "2020", geno@ped$id)
-geno@ped$id <- gsub('IL21', "IL2021", geno@ped$id)
-geno@ped$id <- gsub('16LCSDH', "IL16LCSDH", geno@ped$id)
-geno@ped$id <- gsub("PIO-25R74", "Pio25R74", geno@ped$id)
-geno@ped$id <- gsub("KASKASKIA", "Kaskaskia", geno@ped$id)
+genoVCF@ped$id <- gsub('IL20', "2020", genoVCF@ped$id)
+genoVCF@ped$id <- gsub('IL21', "IL2021", genoVCF@ped$id)
+genoVCF@ped$id <- gsub('16LCSDH', "IL16LCSDH", genoVCF@ped$id)
+genoVCF@ped$id <- gsub("PIO-25R74", "Pio25R74", genoVCF@ped$id)
+genoVCF@ped$id <- gsub("KASKASKIA", "Kaskaskia", genoVCF@ped$id)
 
-dfGeno <- select.snps(geno, maf > 0.01)
-dfGeno2<- as.matrix(dfGeno)-1
-dfGenoT <- t(dfGeno2)
+dfGeno <- select.snps(genoVCF, maf > 0.01)
+geno <- as.matrix(dfGeno)-1
 
-# Simulate Marker Matrix --------------------------------------------------
+# breedSim --------------------------------------------------------
+
+breedSim <- function(nloc,ntrial,tcor,ecorr,c,s1,s2,s3,s4){
+
+
+# Simulate Marker Matrix
 
   # Function 1: convert correlation matrix to correlation matrix
 
@@ -57,12 +69,6 @@ cor2cov_1 <- function(R,S){
 
   # Function 2: determine breeding values by location
 
-breedValbyLoc <- function(n,t,l){
-  
-  nloc <- n
-  tcorr <- t
-  ecorr <- l
-  
   a <- matrix(rep(0,nloc*nloc), ncol=nloc)
   diag(a)<-1
   b <- matrix(c(1,tcorr,tcorr,1), ncol=2)
@@ -72,18 +78,13 @@ breedValbyLoc <- function(n,t,l){
   
   amat1[which(amat1==0)] <- ecorr
   amat1 <- cor2cov_1(amat1, rep(1, nrow(amat1)))   # Function 1: R = correlation matrix, S = Standard deviation
-  cov <- mvrnorm(n=ncol(dfGeno2), mu =rep(0, ncol(amat1)), Sigma = amat1)
+  cov <- mvrnorm(n=ncol(geno), mu =rep(0, ncol(amat1)), Sigma = amat1)
   
-  c <- n*2
-  
-  return(data.table((dfGeno2 %*% cov), keep.rownames = "germplasmName") %>%
-           setnames(old = 1:ncol(cov)+1, rep(str_c("study", rep(1:n, each = 2), "_", rep(c("prlm", "adv"), each= 1:n)))))
-         }
+ breedVal <- data.table((geno %*% cov), keep.rownames = "germplasmName") %>%
+           setnames(old = 1:ncol(cov)+1, rep(str_c("study", rep(1:nloc, each = 2), "_", rep(c("prlm", "adv"), each= 1:nloc))))
+         
 
-breedVal <- breedValbyLoc(n,t,l) #Function 2: n = number of studies, t = correlation between trials, l = correlation between locations
-
-
-# Add cohort label for each year ------------------------------------------
+# Add cohort label for each year
 
 breedVal2 <- breedVal[, plotDes := "check"][
   str_which(germplasmName, "^18-"), plotDes := "exp"][
@@ -107,9 +108,7 @@ breedVal2 <- breedVal2[str_which(germplasmName, "^18-"), cohort := "S4"][
         str_which(germplasmName, "^21-"), cohort := "S1"][
           str_which(germplasmName, "IL2021-"), cohort := "S1"]
 
-# Replicate all entries -------------------------------------------
-
-replication <- function(c,s1,s2,s3,s4){
+# Replicate all entries
 
   checks <- rbindlist(list(
   rep(breedVal2[is.na(cohort),][,cohort := "S1"], times = c),
@@ -132,14 +131,9 @@ exp <- exp[, reps := s1][
      "S3", reps := s3, on = "cohort"][
        "S4", reps := s4, on = "cohort"]
 
- return(rbind(checks, exp))
- 
-}
+breedVal3 <- rbind(checks, exp)
 
-# Enter amount of replication for checks per cohort, and S1, S2, S3, S4 entries
-breedVal3 <- replication(10, 1, 2, 3, 4) 
-
-# Seperate BVs by breeding and advanced then melt data frame ---------------
+# Seperate BVs by breeding and advanced then melt data frame 
 # Look into cleaning this chunk up - messy 
 
 prelim <- breedVal3[cohort == "S1" | cohort == "S2", ][ ,.SD, .SDcols = ! patterns("adv")]
@@ -151,19 +145,19 @@ breedVal4 <- breedVal4[c("S1", "S2"), test := "prelim", on = "cohort"][
                        c("S3", "S4"), test := "adv", on = "cohort"]
 breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
 
-# Add error and effect for study and trial -------------------------------------------
+# Add error and effect for study and trial
 
-studyErr <- rnorm(n, mean =  0, sd = studyVar)
-trialErr <- rnorm(n*2, mean = 0, sd = trialVar)
+studyErr <- rnorm(nloc, mean =  0, sd = .5)
+trialErr <- rnorm(ntrial, mean = 0, sd = .5)
 
 split <- split(breedVal4, list(breedVal4$study, breedVal4$test))
 
 breedVal5 <- data.table()
 
-for (i in 1:trial) {
+for (i in 1:ntrial) {
 group <- split[[i]]
-group <- group[, trialEffect := rep(rnorm(1, trialErr[i], sd = trialVar), times = nrow(group))]
-group <- group[, trialError := rnorm(nrow(group), trialErr[i], sd = trialVar)]
+group <- group[, trialEffect := rep(rnorm(1, trialErr[i], sd = .5), times = nrow(group))]
+group <- group[, trialError := rnorm(nrow(group), trialErr[i], sd = .5)]
 breedVal5 <- rbind(breedVal5, group)
 }
 
@@ -171,21 +165,28 @@ split <- split(breedVal5, list(breedVal5$study))
 
 breedVal5 <- data.table()
 
-for (i in 1:n) {
+for (i in 1:nloc) {
   group <- split[[i]]
-  group <- group[, studyEffect := rep(rnorm(1, trialErr[i], sd = studyVar), times = nrow(group))]
-  group <- group[, studyError := rnorm(nrow(group), studyErr[i], sd = studyVar)]
+  group <- group[, studyEffect := rep(rnorm(1, trialErr[i], sd = .5), times = nrow(group))]
+  group <- group[, studyError := rnorm(nrow(group), studyErr[i], sd = .5)]
   breedVal5 <- rbind(breedVal5, group)
 }
 
 breedVal5[ ,aggBV := mean(bv), by = germplasmName]
 
-# Create Pheno ------------------------------------------------------------
+# Create Pheno
 
-breedVal7 <- breedVal6[, prepPheno := bv + trialResid + prepResid][, rcbdPheno := bv + trialResid + rcbdResid]
+breedVal6 <- breedVal5[, rrPheno := bv + trialEffect + trialError + studyEffect + studyError][, prepPheno := bv + studyError + studyEffect]
 
-breedSim <- as_tibble(breedVal7) %>%
-  mutate(across(c(1:6), factor))
+return(breedSim <- as_tibble(breedVal6) %>%
+  mutate(across(c(1:6), factor)))
+}
+
+breedSim <- breedSim(nloc,ntrial,tcor,ecorr,c,s1,s2,s3,s4)
+
+# End function ------------------------------------------------------------
+
+
 
 # PHASE ONE: Obtain BLUEs and create df with weights--------------------------------------------------------
 
@@ -242,7 +243,7 @@ blueValAll <- filter(status != "Aliased") %>%
 
 # Create relationship matrix ----------------------------------------------
 
-K <- A.mat(dfGeno2)
+K <- A.mat(geno)
 K2 <- nearPD(K)
 K2 <- K2$mat
 
@@ -569,9 +570,9 @@ dfGeno <- select.inds(geno, id %in% unique(blueValAll$germplasmName))
 inter_lines <- intersect(unique(blueValAll$germplasmName), dfGeno@ped$id)
 blueValAll %<>% filter(germplasmName %in% inter_lines)
 dfGeno <- select.snps(dfGeno, maf > 0.01)
-dfGeno2<- as.matrix(dfGeno)-1
+geno<- as.matrix(dfGeno)-1
 
-K <- A.mat(dfGeno2)
+K <- A.mat(geno)
 K2 <- nearPD(K)
 K2 <- K2$mat
 
