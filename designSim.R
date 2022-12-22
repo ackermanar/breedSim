@@ -21,25 +21,28 @@ ntrial <- nloc * 2 # number of trials
 tcorr <- .9 # correlations between trials within locations
 ecorr <- .4 # correlations between locations
 
-
 # Enter replication amount for lines within cohorts and checks
 
-c = 10
-s1 = 1
-s2 = 2
-s3 = 3
-s4 = 4
+c <- 10
+s1 <- 1
+s2 <-  2
+s3 <-  3
+s4 <-  4
 
-# enter desired heritability
- 
- = .5
+# heritability = bv var / trial effect + study effect + residual + bv  
 
+var(breedSim$aggBV) # genetic variance = 2449.827
 
-#Upload gbs data
+H <- .4
+deltaRes <- (1/6)
+deltaTrial <-  (3/6)
+deltaStudy <- (2/6)
+  
+# Upload gbs data
 genoVCF <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
 genoVCF@ped$id <- sub("^.*:", "", genoVCF@ped$id)
 
-#correct the line names
+# Correct the line names
 
 yrseries <- gsub("20", "", as.character(2000:2019))
 for(i in 1:length(yrseries)){
@@ -56,11 +59,10 @@ geno <- as.matrix(dfGeno)-1
 
 # breedSim --------------------------------------------------------
 
-breedSim <- function(nloc,ntrial,tcor,ecorr,c,s1,s2,s3,s4){
-
-
+breedSim <- function(nloc,tcorr,ecorr, geno, c,s1,s2,s3,s4, deltaRes, deltaTrial, deltaStudy){
+  
 # Simulate Marker Matrix
-
+nTrial <- 2 * nloc
   # Function 1: convert correlation matrix to correlation matrix
 
 cor2cov_1 <- function(R,S){
@@ -147,17 +149,18 @@ breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("study"), variab
 
 # Add error and effect for study and trial
 
-studyErr <- rnorm(nloc, mean =  0, sd = .5)
-trialErr <- rnorm(ntrial, mean = 0, sd = .5)
-
 split <- split(breedVal4, list(breedVal4$study, breedVal4$test))
 
 breedVal5 <- data.table()
 
 for (i in 1:ntrial) {
 group <- split[[i]]
-group <- group[, trialEffect := rep(rnorm(1, trialErr[i], sd = .5), times = nrow(group))]
-group <- group[, trialError := rnorm(nrow(group), trialErr[i], sd = .5)]
+trialMean <- rnorm(n=1, mean = 0, sd = sqrt(var(group$bv)))
+nonGenVar <- (var(group$bv)/h) - var(group$bv)
+resVar <- deltaRes * nonGenVar
+trialVar <-  deltaTrial * nonGenVar
+group <- group[, trialEffect := rep(rnorm(1, trialMean, sd = sqrt(trialVar)), times = nrow(group))][
+  , residual := rnorm(nrow(group), mean = 0, sd = sqrt(resVar))]
 breedVal5 <- rbind(breedVal5, group)
 }
 
@@ -167,8 +170,12 @@ breedVal5 <- data.table()
 
 for (i in 1:nloc) {
   group <- split[[i]]
-  group <- group[, studyEffect := rep(rnorm(1, trialErr[i], sd = .5), times = nrow(group))]
-  group <- group[, studyError := rnorm(nrow(group), studyErr[i], sd = .5)]
+  studyMean <- rnorm(n=1, mean = 0, sd = sqrt(var(group$bv)))
+  nonGenVar <- (var(group$bv)/h) - var(group$bv)
+  resVar <- deltaRes * nonGenVar
+  studyVar <-  deltaStudy * nonGenVar
+  group <- group[, studyEffect := rep(rnorm(1, studyMean, sd = sqrt(studyVar)), times = nrow(group))][
+                 , residual := rnorm(nrow(group), mean = 0, sd = sqrt(resVar))]
   breedVal5 <- rbind(breedVal5, group)
 }
 
@@ -176,13 +183,14 @@ breedVal5[ ,aggBV := mean(bv), by = germplasmName]
 
 # Create Pheno
 
-breedVal6 <- breedVal5[, rrPheno := bv + trialEffect + trialError + studyEffect + studyError][, prepPheno := bv + studyError + studyEffect]
+breedVal6 <- breedVal5[, rrPheno := bv + trialEffect + studyEffect + residual][, prepPheno := bv + studyEffect + residual]
 
 return(breedSim <- as_tibble(breedVal6) %>%
   mutate(across(c(1:6), factor)))
 }
 
-breedSim <- breedSim(nloc,ntrial,tcor,ecorr,c,s1,s2,s3,s4)
+breedSim <- breedSim(nloc = 5,tcorr = .9,ecorr = .4, geno = geno, c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
+                     deltaRes = (1/6), deltaTrial = (1/6), deltaStudy = (4/6))
 
 # End function ------------------------------------------------------------
 
