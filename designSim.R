@@ -33,37 +33,50 @@ genoVCF@ped$id <- gsub("KASKASKIA", "Kaskaskia", genoVCF@ped$id)
 dfGeno <- select.snps(genoVCF, maf > 0.01)
 geno <- as.matrix(dfGeno)-1
 
+c <- 10
+s1 <- 1
+s2 <-  2
+s3 <-  3
+s4 <-  4
+
+nloc <- 5 # number of studies
+ntrial <- nloc * 2 # number of trials 
+tcorr <- .9 # correlations between trials within locations
+ecorr <- .4 # correlations between locations
+
+H <- .4
+deltaRes <- (1/6)
+deltaTrial <-  (3/6)
+deltaLoc <- (2/6)
+
 # breedSim --------------------------------------------------------
 
-breedSim <- function(nloc,tcorr,ecorr, geno, c,s1,s2,s3,s4, H, deltaRes, deltaTrial, deltaStudy){
+breedSim <- function(nloc,tcorr,ecorr, geno, c,s1,s2,s3,s4, H, deltaRes, deltaTrial, deltaLoc){
   
-# Simulate Marker Matrix
+  nTrial <- 2 * nloc
   
-nTrial <- 2 * nloc
-
-  # Function 1: convert correlation matrix to correlation matrix
+# Function 1: convert correlation matrix to correlation matrix
 
 cor2cov_1 <- function(R,S){
   diag(S) %*% R %*% diag(S)
 }
 
-  # Function 2: determine breeding values by location
+# Function 2: determine breeding values by location
 
   a <- matrix(rep(0,nloc*nloc), ncol=nloc)
   diag(a)<-1
   b <- matrix(c(1,tcorr,tcorr,1), ncol=2)
   amat1 <- kronecker(a,b)
   
-  #make a block matrix for the environment correlations only
+# make a block matrix for the environment correlations only
   
   amat1[which(amat1==0)] <- ecorr
   amat1 <- cor2cov_1(amat1, rep(1, nrow(amat1)))   # Function 1: R = correlation matrix, S = Standard deviation
   cov <- mvrnorm(n=ncol(geno), mu =rep(0, ncol(amat1)), Sigma = amat1)
   
- breedVal <- data.table((geno %*% cov), keep.rownames = "germplasmName") %>%
-           setnames(old = 1:ncol(cov)+1, rep(str_c("study", rep(1:nloc, each = 2), "_", rep(c("prlm", "adv"), each= 1:nloc))))
+  breedVal <- data.table((geno %*% cov), keep.rownames = "germplasmName") %>%
+           setnames(old = 1:ncol(cov)+1, rep(str_c("loc", rep(1:nloc, each = 2), "_", rep(c("prlm", "adv"), each= 1:nloc))))
          
-
 # Add cohort label for each year
 
 breedVal2 <- breedVal[, plotDes := "check"][
@@ -90,28 +103,44 @@ breedVal2 <- breedVal2[str_which(germplasmName, "^18-"), cohort := "S4"][
 
 # Replicate all entries
 
-  checks <- rbindlist(list(
+checks <- rbind(
   rep(breedVal2[is.na(cohort),][,cohort := "S1"], times = c),
   rep(breedVal2[is.na(cohort),][,cohort := "S2"], times = c),
   rep(breedVal2[is.na(cohort),][,cohort := "S3"], times = c),
   rep(breedVal2[is.na(cohort),][,cohort := "S4"], times = c)
-  ))
+  )
 
+checks <- checks[, unbalancedReps := c][, balancedReps := c][
+  ,design := "all"]
 
- checks <- checks[, reps := c]
-
- exp <- rbindlist(
-   list(rep(breedVal2[cohort == "S1" & plotDes != "check"], each = s1),
-        rep(breedVal2[cohort == "S2" & plotDes != "check"], each = s2),
-        rep(breedVal2[cohort == "S3" & plotDes != "check"], each = s3),
-        rep(breedVal2[cohort == "S4" & plotDes != "check"], each = s4)))
+exp <- rbind(
+  rep(breedVal2[cohort == "S1" & plotDes != "check"], each = s1),
+  rep(breedVal2[cohort == "S2" & plotDes != "check"], each = s2),
+  rep(breedVal2[cohort == "S3" & plotDes != "check"], each = s3),
+  rep(breedVal2[cohort == "S4" & plotDes != "check"], each = s4))
  
-exp <- exp[, reps := s1][
-   "S2", reps := s2, on = "cohort"][
-     "S3", reps := s3, on = "cohort"][
-       "S4", reps := s4, on = "cohort"]
+exp <- exp[, unbalancedReps := s1][
+   "S2", unbalancedReps := s2, on = "cohort"][
+     "S3", unbalancedReps := s3, on = "cohort"][
+       "S4", unbalancedReps := s4, on = "cohort"][
+         , design := "unbalanced"][
+           c("S1", "S2"), balancedReps := s2, on = "cohort"][
+             c("S3", "S4"), balancedReps := s4, on = "cohort"]
 
-breedVal3 <- rbind(checks, exp)
+rcbd1 <- s2 - s1
+rcbd2 <- s4 - s3
+
+rcbd <- unique(exp, by = "germplasmName")
+
+rcbd <- rbind(rep(exp[cohort == "S1"], times = rcbd1),
+              rep(exp[cohort == "S3"], times = rcbd2))
+ 
+
+rcbd <- rcbd[c("S1"), balancedReps := s2, on = "cohort"][
+           c("S3"), balancedReps := s4, on = "cohort"][
+             ,design := "balanced"]
+
+breedVal3 <- rbind(checks, exp, rcbd) %>% relocate(design, .after = cohort)
 
 # Seperate BVs by breeding and advanced then melt data frame 
 # Look into cleaning this chunk up - messy 
@@ -123,13 +152,13 @@ colnames(adv)<-gsub("_adv","",colnames(adv))
 breedVal4 <- rbind(prelim, adv)
 breedVal4 <- breedVal4[c("S1", "S2"), test := "prelim", on = "cohort"][
                        c("S3", "S4"), test := "adv", on = "cohort"]
-breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
+breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("loc"), variable.name = "location", value.name = "bv")
 
 # Add trial effect
 
 nonGenVar <- (var(breedVal4$bv)/H) - var(breedVal4$bv)
 
-split <- split(breedVal4, list(breedVal4$study, breedVal4$test))
+split <- split(breedVal4, list(breedVal4$location, breedVal4$test))
 
 breedVal5 <- data.table()
 
@@ -144,51 +173,77 @@ breedVal5 <- rbind(breedVal5, group)
 breedVal5$trialEffect <-  (breedVal5$trialEffect - mean(breedVal5$trialEffect))/sqrt(var(breedVal5$trialEffect))
 breedVal5$trialEffect <- breedVal5$trialEffect * sqrt(trialVar)
 
-# add main trial effect and residual error
+# add main location effect and residual error
 
-split <- split(breedVal5, list(breedVal5$study))
+split <- split(breedVal5, list(breedVal5$location))
 
 breedVal6 <- data.table()
-studyVar <-  deltaStudy * nonGenVar
+locVar <-  deltaLoc * nonGenVar
+
+for (i in 1:nloc) {
+  group <- split[[i]]
+  group <- group[, locEffect := rep(rnorm(1, 0, sd = sqrt(locVar)), times = nrow(group))]
+  breedVal6 <- rbind(breedVal6, group)
+}
+
+breedVal6$locEffect <-  (breedVal6$locEffect - mean(breedVal6$locEffect))/sqrt(var(breedVal6$locEffect))
+breedVal6$locEffect <- breedVal6$locEffect * sqrt(locVar)
+
+# add study effect for prep, portion of location effect variance + location effect variance
+
+deltaStudy <- deltaTrial + deltaLoc
+studyVar <- nonGenVar * deltaStudy
+
+split <- split(breedVal6, list(breedVal6$location))
+
+breedVal7 <- data.table()
 
 for (i in 1:nloc) {
   group <- split[[i]]
   group <- group[, studyEffect := rep(rnorm(1, 0, sd = sqrt(studyVar)), times = nrow(group))]
-  breedVal6 <- rbind(breedVal6, group)
+  breedVal7 <- rbind(breedVal7, group)
 }
 
-breedVal6$studyEffect <-  (breedVal6$studyEffect - mean(breedVal6$studyEffect))/sqrt(var(breedVal6$studyEffect))
-breedVal6$studyEffect <- breedVal6$studyEffect * sqrt(studyVar)
+breedVal7$studyEffect <-  (breedVal7$studyEffect - mean(breedVal7$studyEffect))/sqrt(var(breedVal7$studyEffect))
+breedVal7$studyEffect <- breedVal7$studyEffect * sqrt(studyVar)
 
 # add residual error
 
 resVar <- deltaRes * nonGenVar
-breedVal7 <- breedVal6[, residual := rnorm(nrow(breedVal6), mean = 0, sd = sqrt(resVar))]
-breedVal7$residual <-  (breedVal7$residual - mean(breedVal7$residual))/sqrt(var(breedVal7$residual))
-breedVal7$residual <- breedVal7$residual * sqrt(resVar)
+breedVal8 <- breedVal7[, residual := rnorm(nrow(breedVal6), mean = 0, sd = sqrt(resVar))]
+breedVal8$residual <-  (breedVal8$residual - mean(breedVal8$residual))/sqrt(var(breedVal8$residual))
+breedVal8$residual <- breedVal8$residual * sqrt(resVar)
 
 # Create Pheno
 
-breedVal8 <- breedVal7[, rrPheno := bv + trialEffect + studyEffect + residual][
-  , prepPheno := bv + studyEffect + residual][ 
-    ,aggBV := mean(bv), by = germplasmName]
+breedVal9 <- breedVal8[, rrPheno := bv + trialEffect + locEffect + residual][
+  , rcbdPheno := bv + trialEffect + locEffect + residual][
+    , prepPheno := bv + studyEffect + residual][
+      ,trueBV := mean(bv), by = germplasmName]
 
-return(dfBreedSim <- as_tibble(breedVal8) %>%
-  relocate(aggBV, .after = bv) %>% 
+return(dfBreedSim <- as_tibble(breedVal9) %>%
+  relocate(trueBV, .after = bv) %>% 
   mutate(across(c(1:6), factor)))
   
 }
 
 # End function ------------------------------------------------------------
 
-dfBreedSim <- breedSim(nloc = 5,tcorr = .9,ecorr = .4, geno = geno, H = .4, c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
-                     deltaRes = (1/6), deltaTrial = (1/6), deltaStudy = (2/3))
-
+dfBreedSim <- breedSim(geno = geno, nloc = 5,tcorr = .9,ecorr = .4, H = .4, 
+                       c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
+                       deltaRes = (1/6), deltaTrial = (1/6), deltaLoc = (2/3))
 
 #### Test Function ####
 
-testH <- var(dfBreedSim$bv)/(var(dfBreedSim$bv) + var(dfBreedSim$studyEffect) + var(dfBreedSim$trialEffect) + var(dfBreedSim$residual))
+testRRH <- var(dfBreedSim$bv)/(var(dfBreedSim$bv) + var(dfBreedSim$locEffect) + var(dfBreedSim$trialEffect) + var(dfBreedSim$residual))
+print(testRRH)
 
+
+testPrepH <- var(dfBreedSim$bv)/(var(dfBreedSim$bv) + var(dfBreedSim$residual) + var(dfBreedSim$studyEffect))
+print(testPrepH)                               
+
+print(testRCBDH)
+                                 
 # PHASE ONE: Obtain BLUEs and create df with weights--------------------------------------------------------
 
 #make converge
@@ -235,7 +290,7 @@ blueValAll <- filter(status != "Aliased") %>%
   relocate(stage, .before = 6) %>%
   relocate(predicted.value, .after = 8) %>%
   relocate(std.error, .before = 7) %>%
-  unite(studyStage, c("studyName", "stage"), remove = FALSE, sep = "_S") %>%
+  unite(locStage, c("locName", "stage"), remove = FALSE, sep = "_S") %>%
   mutate(across(c(1:6), factor)) %>%
   rename(traitLevel = trait) %>%
   print(width = Inf)
@@ -256,16 +311,16 @@ K2 <- K2$mat
 
 # Create masked Neo set and unmasked Neo set
 
-dfNA <- blueValAll %>% filter(studyName == "YT_Neo_22") %>%
+dfNA <- blueValAll %>% filter(locName == "YT_Neo_22") %>%
   filter(germplasmName %in% maskSet) %>%
   mutate(predicted.value = NA_real_) %>%
   mutate(set = "validation")
 
-dfNeoMask <- blueValAll %>% filter(studyName != "YT_Neo_22") %>%
+dfNeoMask <- blueValAll %>% filter(locName != "YT_Neo_22") %>%
   mutate(set = "training") %>%
   bind_rows(dfNA)
 
-dfNeoAll <- pRepLong %>% filter(studyName == "YT_Neo_22")
+dfNeoAll <- pRepLong %>% filter(locName == "YT_Neo_22")
 
 ####Run asreml for prediction####
 
@@ -281,7 +336,7 @@ for (i in traitLevelIndex) {
   
   #Training set without stage
   blupModNeoMask <- asreml(fixed = predicted.value ~ 1,
-                           random = ~ germplasmName:studyName + vm(germplasmName, K2),  #germplasm:studyName?
+                           random = ~ germplasmName:locName + vm(germplasmName, K2),  #germplasm:locName?
                            weights = weightTraitByLoc,
                            family = asr_gaussian(dispersion = 1),
                            residual = ~ idv(units),
@@ -293,7 +348,7 @@ for (i in traitLevelIndex) {
   
   #Training set with stage
   blupModNeoMaskStage <- asreml(fixed = predicted.value ~ 1,
-                                random = ~ germplasmName + stage:studyName + vm(germplasmName, K2),
+                                random = ~ germplasmName + stage:locName + vm(germplasmName, K2),
                                 residual = ~ idv(units),
                                 weights = weightTraitByLoc,
                                 family = asr_gaussian(dispersion = 1),
@@ -311,8 +366,8 @@ for (i in traitLevelIndex) {
                        workspace="8gb")
   blupModNeo <-  mkConv(blupModNeo)
   
-  blupValMask <- predict.asreml(blupModNeoMask, classify = "germplasmName", average = list(studyName = NULL), pworkspace = "8gb")[[1]]
-  blupValMaskStage <- predict.asreml(blupModNeoMaskStage, classify = "germplasmName", average = list(studyName = NULL, stage = NULL), pworkspace = "8gb")[[1]]
+  blupValMask <- predict.asreml(blupModNeoMask, classify = "germplasmName", average = list(locName = NULL), pworkspace = "8gb")[[1]]
+  blupValMaskStage <- predict.asreml(blupModNeoMaskStage, classify = "germplasmName", average = list(locName = NULL, stage = NULL), pworkspace = "8gb")[[1]]
   blupVal <- predict.asreml(blupModNeo, classify = "germplasmName",  pworkspace = "8gb")[[1]]
   
   blupValMask <- tibble(blupValMask) %>%
@@ -336,8 +391,8 @@ for (i in traitLevelIndex2) {
   
   blupValByTrait <- tibble()
   
-  dfNeoMaskFilter <- dfNeoMask %>%  filter(traitLevel == i, studyName %in% UrbNeo)
-  dfNeoAllFilter <- dfNeoAll %>%  filter(traitLevel == i, studyName %in% UrbNeo)
+  dfNeoMaskFilter <- dfNeoMask %>%  filter(traitLevel == i, locName %in% UrbNeo)
+  dfNeoAllFilter <- dfNeoAll %>%  filter(traitLevel == i, locName %in% UrbNeo)
   
   blupModNeoMask <- asreml(fixed = predicted.value ~ 1,
                            random = ~ germplasmName + vm(germplasmName, K2),
@@ -350,7 +405,7 @@ for (i in traitLevelIndex2) {
   blupModNeoMask <-  mkConv(blupModNeoMask)
   
   blupModNeoMaskStage <- asreml(fixed = predicted.value ~ 1,
-                                random = ~ germplasmName + stage:studyName + vm(germplasmName, K2),
+                                random = ~ germplasmName + stage:locName + vm(germplasmName, K2),
                                 residual = ~ idv(units),
                                 weights = weightTraitByLoc,
                                 family = asr_gaussian(dispersion = 1),
@@ -369,8 +424,8 @@ for (i in traitLevelIndex2) {
   blupModNeo <-  mkConv(blupModNeo)
   
   
-  blupValMask <- predict.asreml(blupModNeoMask, classify = "germplasmName", average = list(studyName = NULL), pworkspace = "8gb")[[1]]
-  blupValMaskStage <- predict.asreml(blupModNeoMaskStage, classify = "stage:germplasmName", present = list("stage"), average = list(studyName = NULL), pworkspace = "8gb")[[1]]
+  blupValMask <- predict.asreml(blupModNeoMask, classify = "germplasmName", average = list(locName = NULL), pworkspace = "8gb")[[1]]
+  blupValMaskStage <- predict.asreml(blupModNeoMaskStage, classify = "stage:germplasmName", present = list("stage"), average = list(locName = NULL), pworkspace = "8gb")[[1]]
   blupVal <- predict.asreml(blupModNeo, classify = "germplasmName",  pworkspace = "8gb")[[1]]
   
   blupValMask <- tibble(blupValMask) %>%
@@ -462,7 +517,7 @@ replicateNum
 pRep <- df %>% left_join(replicateNum, by = "germplasmName") %>%
   left_join(dfStage) %>%
   relocate(stage, .before= 3) %>%
-  unite(studyStage, c("studyName", "stage"), remove = FALSE, sep = "_S") %>%
+  unite(locStage, c("locName", "stage"), remove = FALSE, sep = "_S") %>%
   relocate(replicateNum, .before = 4) %>%
   relocate(entryType, .before = 4) %>%
   arrange(colNumber, rowNumber) %>% #arrange to match spatial error structure col:row
@@ -484,13 +539,13 @@ mkConv<- function(mod){
   return(mod)
 }
 
-studyNames <- c("YT_Neo_22", "YT_Urb_22", "YT_Stj_22", "YT_Stp_22", "YT_Blv_22")
+locNames <- c("YT_Neo_22", "YT_Urb_22", "YT_Stj_22", "YT_Stp_22", "YT_Blv_22")
 traitLevels <- as.factor(c("grainYield", "grainTestWeight"))
 blueVal1 <- tibble()
 
-for (i in studyNames) {
+for (i in locNames) {
   blueValTrait1 <- tibble()
-  dfLoc <- pRepLong %>% filter(studyName == i)
+  dfLoc <- pRepLong %>% filter(locName == i)
   for (j in traitLevels) {
     dfTrait <- dfLoc %>% filter(traitLevel == j)
     blueMod <- asreml(fixed = value ~ germplasmName, #environment and genotype as fixed effect
@@ -503,7 +558,7 @@ for (i in studyNames) {
     blueVal <- predict.asreml(blueMod, classify = "germplasmName", pworkspace = "8gb")$pvals
     
     
-    blueVal %<>% mutate(studyName = i, trait = j, weightTraitByLoc = 1/std.error^2)
+    blueVal %<>% mutate(locName = i, trait = j, weightTraitByLoc = 1/std.error^2)
     blueValTrait1 <- bind_rows(blueValTrait1, blueVal)
   }
   
@@ -511,13 +566,13 @@ for (i in studyNames) {
   
 }
 
-studyNames <- c("YT_Neo_22", "YT_Urb_22")
+locNames <- c("YT_Neo_22", "YT_Urb_22")
 traitLevels <- as.factor(c("plantHeight", "julianDate"))
 blueVal2 <- tibble()
 
-for (i in studyNames) {
+for (i in locNames) {
   blueValTrait2 <- tibble()
-  dfLoc <- pRepLong %>% filter(studyName == i)
+  dfLoc <- pRepLong %>% filter(locName == i)
   for (j in traitLevels) {
     dfTrait <- dfLoc %>% filter(traitLevel == j)
     blueMod <- asreml(fixed = value ~ germplasmName , #environment and genotype as fixed effect
@@ -529,7 +584,7 @@ for (i in studyNames) {
     blueMod<- mkConv(blueMod)
     blueVal <- predict.asreml(blueMod, classify = "germplasmName", pworkspace = "8gb")$pvals
     
-    blueVal %<>% mutate(studyName = i, trait = j, weightTraitByLoc = 1/std.error^2)
+    blueVal %<>% mutate(locName = i, trait = j, weightTraitByLoc = 1/std.error^2)
     blueValTrait2 <- bind_rows(blueValTrait2, blueVal)
   }
   
@@ -587,12 +642,12 @@ K2 <- K2$mat
 # Create training and validation sets by masking lines at Neoga
 
 #Find lines present in Neo that are not present in other locations
-validNames <- blueValAll %>% filter(studyName == "YT_Neo_22") %>%
+validNames <- blueValAll %>% filter(locName == "YT_Neo_22") %>%
   select(germplasmName)
 
 validNames <- as.vector(unique(validNames[[1]]))
 
-trainNames <- blueValAll %>% filter(studyName != "YT_Neo_22") %>%
+trainNames <- blueValAll %>% filter(locName != "YT_Neo_22") %>%
   select(germplasmName)
 
 trainNames <- as.vector(unique(trainNames[[1]]))
@@ -601,16 +656,16 @@ maskSet <- validNames[!validNames %in% trainNames]
 
 #Create masked Neo set and unmasked Neo set
 
-dfNA <- blueValAll %>% filter(studyName == "YT_Neo_22") %>%
+dfNA <- blueValAll %>% filter(locName == "YT_Neo_22") %>%
   filter(germplasmName %in% maskSet) %>%
   mutate(predicted.value = NA_real_) %>%
   mutate(set = "validation")
 
-dfNeoMask <- blueValAll %>% filter(studyName != "YT_Neo_22") %>%
+dfNeoMask <- blueValAll %>% filter(locName != "YT_Neo_22") %>%
   mutate(set = "training") %>%
   bind_rows(dfNA)
 
-dfNeoAll <- pRepLong %>% filter(studyName == "YT_Neo_22")
+dfNeoAll <- pRepLong %>% filter(locName == "YT_Neo_22")
 
 ####Run asreml for prediction####
 
@@ -626,7 +681,7 @@ for (i in traitLevelIndex) {
   
   #Training set without stage
   blupModNeoMask <- asreml(fixed = predicted.value ~ 1,
-                           random = ~ studyName + vm(germplasmName, K2),
+                           random = ~ locName + vm(germplasmName, K2),
                            weights = weightTraitByLoc,
                            family = asr_gaussian(dispersion = 1),
                            residual = ~ idv(units),
@@ -638,7 +693,7 @@ for (i in traitLevelIndex) {
   
   #Training set with stage
   blupModNeoMaskStage <- asreml(fixed = predicted.value ~ 1,
-                                random = ~ studyStage + vm(germplasmName, K2),
+                                random = ~ locStage + vm(germplasmName, K2),
                                 residual = ~ idv(units),
                                 weights = weightTraitByLoc,
                                 family = asr_gaussian(dispersion = 1),
@@ -681,8 +736,8 @@ for (i in traitLevelIndex2) {
   
   blupValByTrait <- tibble()
   
-  dfNeoMaskFilter <- dfNeoMask %>%  filter(traitLevel == i, studyName %in% UrbNeo)
-  dfNeoAllFilter <- dfNeoAll %>%  filter(traitLevel == i, studyName %in% UrbNeo)
+  dfNeoMaskFilter <- dfNeoMask %>%  filter(traitLevel == i, locName %in% UrbNeo)
+  dfNeoAllFilter <- dfNeoAll %>%  filter(traitLevel == i, locName %in% UrbNeo)
   
   blupModNeoMask <- asreml(fixed = predicted.value ~ 1,
                            random = ~ vm(germplasmName, K2),
@@ -695,7 +750,7 @@ for (i in traitLevelIndex2) {
   blupModNeoMask <-  mkConv(blupModNeoMask)
   
   blupModNeoMaskStage <- asreml(fixed = predicted.value ~ 1,
-                                random = ~ studyStage + vm(germplasmName, K2),
+                                random = ~ locStage + vm(germplasmName, K2),
                                 residual = ~ idv(units),
                                 weights = weightTraitByLoc,
                                 family = asr_gaussian(dispersion = 1),
@@ -705,7 +760,7 @@ for (i in traitLevelIndex2) {
   blupModNeoMaskStage <-  mkConv(blupModNeoMaskStage)
   
   
-  blupModNeo <- asreml(fixed = value ~ studyName,
+  blupModNeo <- asreml(fixed = value ~ locName,
                        random = ~ germplasmName + idv(units),
                        residual = ~ ar1v(colNumber):ar1(rowNumber),
                        data = dfNeoAllFilter,
