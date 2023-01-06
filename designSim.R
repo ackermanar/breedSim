@@ -13,31 +13,8 @@ library(FieldSimR)
 library(MASS)
 library(rbenchmark)
 
-# Enter variables ---------------------------------------------------------
-
-nloc <- 5 # number of studies
-tcorr <- .9 # correlations between trials within locations
-ecorr <- .4 # correlations between locations
-
-# Enter replication amount for lines within cohorts and checks
-
-c <- 10
-s1 <- 1
-s2 <-  2
-s3 <-  3
-s4 <-  4
-
-# heritability = bv var / trial effect + study effect + residual + bv  
-
-H <- .4
-
-#Partition out nongenetic effect (main effect to residual error)
-
-deltaRes <- (1/6)
-deltaTrial <-  (1/6)
-deltaStudy <- (2/3)
-  
 # Upload gbs data
+
 genoVCF <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
 genoVCF@ped$id <- sub("^.*:", "", genoVCF@ped$id)
 
@@ -58,7 +35,7 @@ geno <- as.matrix(dfGeno)-1
 
 # breedSim --------------------------------------------------------
 
-breedSim <- function(nloc,tcorr,ecorr, geno, c,s1,s2,s3,s4, deltaRes, deltaTrial, deltaStudy){
+breedSim <- function(nloc,tcorr,ecorr, geno, c,s1,s2,s3,s4, H, deltaRes, deltaTrial, deltaStudy){
   
 # Simulate Marker Matrix
   
@@ -190,28 +167,27 @@ breedVal7 <- breedVal6[, residual := rnorm(nrow(breedVal6), mean = 0, sd = sqrt(
 breedVal7$residual <-  (breedVal7$residual - mean(breedVal7$residual))/sqrt(var(breedVal7$residual))
 breedVal7$residual <- breedVal7$residual * sqrt(resVar)
 
-
 # Create Pheno
 
-breedVal7 <- breedVal6[, rrPheno := bv + trialEffect + studyEffect + residual][
+breedVal8 <- breedVal7[, rrPheno := bv + trialEffect + studyEffect + residual][
   , prepPheno := bv + studyEffect + residual][ 
     ,aggBV := mean(bv), by = germplasmName]
 
-return(breedSim <- as_tibble(breedVal6) %>%
+return(dfBreedSim <- as_tibble(breedVal8) %>%
+  relocate(aggBV, .after = bv) %>% 
   mutate(across(c(1:6), factor)))
+  
 }
-
-breedVal7
 
 # End function ------------------------------------------------------------
 
-dfBreedSim <- breedSim(nloc = 5,tcorr = .9,ecorr = .4, geno = geno, c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
+dfBreedSim <- breedSim(nloc = 5,tcorr = .9,ecorr = .4, geno = geno, H = .4, c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
                      deltaRes = (1/6), deltaTrial = (1/6), deltaStudy = (2/3))
 
 
 #### Test Function ####
 
-testVar <- var(dfBreedSim$bv)/(var(dfBreedSim$bv) + var(dfBreedSim$studyEffect) + var(dfBreedSim$trialEffect) + var(dfBreedSim$residual))
+testH <- var(dfBreedSim$bv)/(var(dfBreedSim$bv) + var(dfBreedSim$studyEffect) + var(dfBreedSim$trialEffect) + var(dfBreedSim$residual))
 
 # PHASE ONE: Obtain BLUEs and create df with weights--------------------------------------------------------
 
