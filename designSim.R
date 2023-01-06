@@ -13,11 +13,9 @@ library(FieldSimR)
 library(MASS)
 library(rbenchmark)
 
-
 # Enter variables ---------------------------------------------------------
 
 nloc <- 5 # number of studies
-ntrial <- nloc * 2 # number of trials 
 tcorr <- .9 # correlations between trials within locations
 ecorr <- .4 # correlations between locations
 
@@ -31,12 +29,13 @@ s4 <-  4
 
 # heritability = bv var / trial effect + study effect + residual + bv  
 
-var(breedSim$aggBV) # genetic variance = 2449.827
-
 H <- .4
+
+#Partition out nongenetic effect (main effect to residual error)
+
 deltaRes <- (1/6)
-deltaTrial <-  (3/6)
-deltaStudy <- (2/6)
+deltaTrial <-  (1/6)
+deltaStudy <- (2/3)
   
 # Upload gbs data
 genoVCF <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
@@ -62,7 +61,9 @@ geno <- as.matrix(dfGeno)-1
 breedSim <- function(nloc,tcorr,ecorr, geno, c,s1,s2,s3,s4, deltaRes, deltaTrial, deltaStudy){
   
 # Simulate Marker Matrix
+  
 nTrial <- 2 * nloc
+
   # Function 1: convert correlation matrix to correlation matrix
 
 cor2cov_1 <- function(R,S){
@@ -147,54 +148,70 @@ breedVal4 <- breedVal4[c("S1", "S2"), test := "prelim", on = "cohort"][
                        c("S3", "S4"), test := "adv", on = "cohort"]
 breedVal4 <- melt.data.table(breedVal4, measure.vars = patterns("study"), variable.name = "study", value.name = "bv")
 
-# Add error and effect for study and trial
+# Add trial effect
+
+nonGenVar <- (var(breedVal4$bv)/H) - var(breedVal4$bv)
 
 split <- split(breedVal4, list(breedVal4$study, breedVal4$test))
 
 breedVal5 <- data.table()
 
+trialVar <-  deltaTrial * nonGenVar
+
 for (i in 1:ntrial) {
 group <- split[[i]]
-trialMean <- rnorm(n=1, mean = 0, sd = sqrt(var(group$bv)))
-nonGenVar <- (var(group$bv)/h) - var(group$bv)
-resVar <- deltaRes * nonGenVar
-trialVar <-  deltaTrial * nonGenVar
-group <- group[, trialEffect := rep(rnorm(1, trialMean, sd = sqrt(trialVar)), times = nrow(group))][
-  , residual := rnorm(nrow(group), mean = 0, sd = sqrt(resVar))]
+group <- group[, trialEffect := rep(rnorm(1, mean = 0, sd = sqrt(trialVar)), times = nrow(group))]
 breedVal5 <- rbind(breedVal5, group)
 }
 
+breedVal5$trialEffect <-  (breedVal5$trialEffect - mean(breedVal5$trialEffect))/sqrt(var(breedVal5$trialEffect))
+breedVal5$trialEffect <- breedVal5$trialEffect * sqrt(trialVar)
+
+# add main trial effect and residual error
+
 split <- split(breedVal5, list(breedVal5$study))
 
-breedVal5 <- data.table()
+breedVal6 <- data.table()
+studyVar <-  deltaStudy * nonGenVar
 
 for (i in 1:nloc) {
   group <- split[[i]]
-  studyMean <- rnorm(n=1, mean = 0, sd = sqrt(var(group$bv)))
-  nonGenVar <- (var(group$bv)/h) - var(group$bv)
-  resVar <- deltaRes * nonGenVar
-  studyVar <-  deltaStudy * nonGenVar
-  group <- group[, studyEffect := rep(rnorm(1, studyMean, sd = sqrt(studyVar)), times = nrow(group))][
-                 , residual := rnorm(nrow(group), mean = 0, sd = sqrt(resVar))]
-  breedVal5 <- rbind(breedVal5, group)
+  group <- group[, studyEffect := rep(rnorm(1, 0, sd = sqrt(studyVar)), times = nrow(group))]
+  breedVal6 <- rbind(breedVal6, group)
 }
 
-breedVal5[ ,aggBV := mean(bv), by = germplasmName]
+breedVal6$studyEffect <-  (breedVal6$studyEffect - mean(breedVal6$studyEffect))/sqrt(var(breedVal6$studyEffect))
+breedVal6$studyEffect <- breedVal6$studyEffect * sqrt(studyVar)
+
+# add residual error
+
+resVar <- deltaRes * nonGenVar
+breedVal7 <- breedVal6[, residual := rnorm(nrow(breedVal6), mean = 0, sd = sqrt(resVar))]
+breedVal7$residual <-  (breedVal7$residual - mean(breedVal7$residual))/sqrt(var(breedVal7$residual))
+breedVal7$residual <- breedVal7$residual * sqrt(resVar)
+
 
 # Create Pheno
 
-breedVal6 <- breedVal5[, rrPheno := bv + trialEffect + studyEffect + residual][, prepPheno := bv + studyEffect + residual]
+breedVal7 <- breedVal6[, rrPheno := bv + trialEffect + studyEffect + residual][
+  , prepPheno := bv + studyEffect + residual][ 
+    ,aggBV := mean(bv), by = germplasmName]
 
 return(breedSim <- as_tibble(breedVal6) %>%
   mutate(across(c(1:6), factor)))
 }
 
-breedSim <- breedSim(nloc = 5,tcorr = .9,ecorr = .4, geno = geno, c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
-                     deltaRes = (1/6), deltaTrial = (1/6), deltaStudy = (4/6))
+breedVal7
 
 # End function ------------------------------------------------------------
 
+dfBreedSim <- breedSim(nloc = 5,tcorr = .9,ecorr = .4, geno = geno, c = 10,s1 = 1 ,s2 = 2,s3 = 3,s4 = 4, 
+                     deltaRes = (1/6), deltaTrial = (1/6), deltaStudy = (2/3))
 
+
+#### Test Function ####
+
+testVar <- var(dfBreedSim$bv)/(var(dfBreedSim$bv) + var(dfBreedSim$studyEffect) + var(dfBreedSim$trialEffect) + var(dfBreedSim$residual))
 
 # PHASE ONE: Obtain BLUEs and create df with weights--------------------------------------------------------
 
@@ -435,6 +452,7 @@ for (i in traitLevelIndex3) {
   finalResultAll <- bind_rows(finalResultAll, finalResult)
   
 }
+
 ####end####
 
 stage <- c("1", "2", "3", "4")
