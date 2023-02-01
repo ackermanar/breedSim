@@ -6,26 +6,14 @@ library(asreml)
 library(rrBLUP)
 library(gaston)
 library(MASS)
+library(foreach)
+library(R.filesets)
 
 # Upload gbs data
 
-genoVCF <- read.vcf("IL_2022_all_regions_samp_filt_fullnames_dedup_imp.vcf.gz")
-genoVCF@ped$id <- sub("^.*:", "", genoVCF@ped$id)
+geno <- loadRDS("geno.RData")
 
-# Correct the line names
-
-yrseries <- gsub("20", "", as.character(2000:2019))
-for(i in 1:length(yrseries)){
-  genoVCF@ped$id<- gsub(paste("IL", yrseries[i], sep=""), yrseries[i], genoVCF@ped$id)
-}
-genoVCF@ped$id <- gsub('IL20', "2020", genoVCF@ped$id)
-genoVCF@ped$id <- gsub('IL21', "IL2021", genoVCF@ped$id)
-genoVCF@ped$id <- gsub('16LCSDH', "IL16LCSDH", genoVCF@ped$id)
-genoVCF@ped$id <- gsub("PIO-25R74", "Pio25R74", genoVCF@ped$id)
-genoVCF@ped$id <- gsub("KASKASKIA", "Kaskaskia", genoVCF@ped$id)
-
-dfGeno <- select.snps(genoVCF, maf > 0.01)
-geno <- as.matrix(dfGeno)-1
+K2 <- loadRDS("K2.RData")
 
 # Manual Entry of variables ----------------------------------------------
 
@@ -83,12 +71,6 @@ breedSimX <- function(nloc,tcorr,ecorr, geno, s1, s2, s3, s4, H, deltaRes, delta
             str_which(germplasmName, "IL2021-"), cohort := "S1"]
 
   geno<-  geno[breedSim2$germplasmName,] # Filter for lines being used
- 
-  K <- A.mat(geno)
-  K2 <- nearPD(K)
-  K2 <- K2$mat
-  
-  saveRDS(K2, "K2.RData")
   
    # Replicate all entries
   
@@ -236,7 +218,9 @@ rm_dups <-  unique(breedSim[, c(1:3,10)], by = "germplasmName")
 
 # predict for partial replication (unbalanced)
 
-breedSim_pRep <-  breedSim[design ==  "unbalanced"] # Subset dataset using "design" column
+breedSim_pRep_exp <-  breedSim[design ==  "unbalanced" | plotDes == "check"] # Subset dataset using "design" column
+breedSim_pRep_checks<- breedSim[plotDes==  "check"][, prepPheno:=  NA]
+breedSim_pRep<- rbind(breedSim_pRep_exp, breedSim_pRep_checks)
 
 BLUE_pRep <-  asreml(fixed = prepPheno ~ germplasmName,
                      random = ~ location + location:germplasmName,
@@ -250,21 +234,19 @@ BLUE_pRep<- rm_dups[pred_BLUE_pRep, on = .(germplasmName)]
 BLUE_pRep[, locWeight :=  1/std.error^2]
 
 gBLUP_pRep <- asreml(fixed = predicted.value ~ 1,
-                    random = ~ vm(germplasmName, K2),
+                    random = ~ vm(germplasmName, K2pRep),
                     weights = locWeight,
                     family = asr_gaussian(dispersion = 1),
                     residual = ~ idv(units),
                     data = BLUE_pRep, 
                     na.action = na.method(y = "omit", x = "omit"))
 
-pred_gBLUP_pRep<- as.data.table(predict.asreml(gBLUPE_pRep, classify = "germplasmName")$pvals)
+pred_gBLUP_pRep<- as.data.table(predict.asreml(gBLUP_pRep, classify = "germplasmName")$pvals)
 saveRDS(pred_gBLUP_pRep, str_c("gBLUP_pRep_V", version, ".RData"))
 
-gBLUP_pRep->  rm_dups[pred_gBLUP_pRep, on = .(germplasmName)]
-cor_pRep<- gBLUP_pRep %>% cor(gBLUP_pREP$trueBV, gBLUP_pREP$predicted.value, method = "pearson")
+gBLUP_pRep<- rm_dups[pred_gBLUP_pRep, on = .(germplasmName)]
+cor_pRep<- cor(gBLUP_pREP$trueBV, gBLUP_pREP$predicted.value, method = "pearson")
 setnames(gBLUP_pRep, "predicted.value", "pRep_gBLUP")
-
-
 
 # predict for restricted randomization (unbalanced)
 
@@ -313,7 +295,7 @@ pred_BLUE_RCBD <-  as.data.table(predict.asreml(BLUE_RCBD, classify = "germplasm
 BLUE_RCBD<- rm_dups[pred_BLUE_RCBD, on = .(germplasmName)]
 BLUE_RCBD[, locWeight :=  1/std.error^2]
 
-gBLUP_RR <- asreml(fixed = predicted.value ~ 1,
+gBLUP_RCBD <- asreml(fixed = predicted.value ~ 1,
                   random = ~ vm(germplasmName, K2),
                   weights = locWeight,
                   family = asr_gaussian(dispersion = 1),
@@ -324,7 +306,7 @@ gBLUP_RR <- asreml(fixed = predicted.value ~ 1,
 pred_gBLUP_RCBD<- as.data.table(predict.asreml(gBLUP_RCBD, classify = "germplasmName")$pvals)
 saveRDS(pred_gBLUP_RCBD, str_c("pred_RCBD_V", version, ".RData"))
 
-gBLUP_RCBD<- rm_dups[pred_gBLUP_pRCBD, on = .(germplasmName)]
+gBLUP_RCBD<- rm_dups[pred_gBLUP_RCBD, on = .(germplasmName)]
 cor_RCBD<- cor(gBLUP_RCBD$trueBV, gBLUP_RCBD$predicted.value, method = "pearson")
 setnames(gBLUP_RCBD, "predicted.value", "RCBD_gBLUP")
 
@@ -340,8 +322,8 @@ results_df<-  rm_dups %>% left_join(pRep, by = "germplasmName") %>%
 
 write.csv(results_df, str_c("breedSimResults_V",version,".csv"))
 
-results_cor<- data.table(pRep = cor_pRep, RR = cor_RR, RCBD = cor = cor_RCBD)
+results_cor<- data.table(pRep = cor_pRep, RR = cor_RR, RCBD = cor_RCBD)
 
-write.csv(results_cor, str_c("GS_ACC_Pearson_V",version,".csv"))
+write.csv(results_cor, str_c("GS_r2_Pearson_V",version,".csv"))
 
 
