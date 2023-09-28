@@ -279,7 +279,7 @@ for(i in 1:50){
       bvRCBD[, c("location","test") := tstrsplit(loc_test, "_")][,design := "RCBD"][, block := NA][, loc_test := NULL][, trueBV := mean(bv), by = germplasmName] 
       
       bvPREP <- data.table((geno %*% covPREP), keep.rownames = "germplasmName") |>
-        setnames(old = 1:ncol(covPREP)+1, rep(str_c(rep(seq_len(nLoc), each = max(breedSim6$repTotal)), "_", seq_len(max(breedSim6$repTotal))))) |>
+        setnames(old = 1:ncol(covPREP)+1, rep(str_c(rep(seq_len(nLoc), each = max(breedSim$repTotal)), "_", rep(1:max(breedSim$repTotal), times = max(nLoc))))) |>
         melt(id.vars = "germplasmName", variable.name = "loc_block", variable.factor = TRUE, value.name = "bv")
       
       bvPREP[, c("location","block") := tstrsplit(loc_block, "_")][,design := "PREP"][, test := NA][, loc_block := NULL][, trueBV := mean(bv), by = germplasmName] 
