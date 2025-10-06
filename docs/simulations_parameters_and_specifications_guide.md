@@ -5,8 +5,8 @@
 **Corresponding Manuscript**: "Randomization across breeding cohorts improves accuracy of conventional and genomic selection"
 
 **Version History**:
-- v1.1 (2025-01-XX): Corrected r_{k_{1}k_{2}} terminology; changed GEBV to Sparse Testing
-- v1.0 (2025-01-XX): Initial comprehensive guide
+- v1.1 (2025-09-30): Corrected r_{k_{1}k_{2}} terminology; changed GEBV to Sparse Testing
+- v1.0 (2025-01-25): Initial comprehensive guide
 
 ---
 
