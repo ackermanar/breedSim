@@ -35,17 +35,12 @@ We compared two randomization strategies:
 ├── R/
 │   ├── breedSimV7_BLUP_1Phase_1-16.R      # Conventional BLUP simulation
 │   ├── breedSimV9_gBLUP_1-26.R            # Genomic BLUP (balanced MET)
-│   └── breedSimV9_GEBV_1-26.R             # Genomic-enabled sparse testing
+│   └── breedSimV9_GEBV_1-26.R             # Genomic-enabled sparse testing (unbalanced MET)
 ├── data/
-│   ├── geno.RData                          # Genotypic data matrix (not included - see Data Availability)
-│   └── K2.RData                            # Genomic relationship matrix (generated from geno.RData)
+│   ├── data_accessibility.md
 ├── docs/
 │   ├── simulations_parameters_and_specifications_guide.md            # Detailed parameter specifications
 │   └── results_summary.md                                            # Key findings summary
-├── output/
-│   ├── BLUPoutput/                        # Conventional selection results
-│   ├── gBLUPoutput/                       # Genomic selection results (balanced)
-│   └── Sparseoutput/                      # Sparse testing results
 ├── LICENSE
 └── README.md
 ```
