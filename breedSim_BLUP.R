@@ -12,21 +12,26 @@ library(magrittr)
 library(purrr)
 library(furrr)
 library(future)
-library(asreml)
+library(asreml4)
 library(data.table)
 library(tidyverse)
 
-finalResults <- tibble()
+finalResult <- tibble()
 
-for(i in 1:50){
+for(i in 1:450){
   
-# breedSim, runs simulation a single time, nested in breedSimX ------------
-
-# geno = gbs data, nLoc = number of unique environments, macroGxE = genetic correlation between environments, 
-# microGxE = genetic correlation between tests in RCBD and blocks in PREP, H2 = set heritabilities to test (designates residual error by default)
-# Usable macroGxE are currently .4, .5, and .6. Higher numbers deviate farther from expected correlations due
-# lack of positive definite matrices produced from combination of macro and micro GxE
-
+  
+  finalResultH2 <- tibble()
+  
+  for(j in c(.2,.4,.6,.8)){
+    
+  # breedSim, runs simulation a single time, nested in breedSimX ------------
+  
+  # geno = gbs data, nLoc = number of unique environments, macroGxE = genetic correlation between environments, 
+  # microGxE = genetic correlation between tests in RCBD and blocks in PREP, H2 = set heritabilities to test (designates residual error by default)
+  # Usable macroGxE are currently .4, .5, and .6. Higher numbers deviate farther from expected correlations due
+  # lack of positive definite matrices produced from combination of macro and micro GxE
+  
   breedSimX <- function(geno, nLoc, macroGxE, microGxE, H2) {
     
     # Add cohort and plot designation to geno names
@@ -51,10 +56,9 @@ for(i in 1:50){
     
     # Enter entries to design and assign test 
     
-    
     breedSim1 <- rbind(data.table(uniqueLines, design = "RCBD"), data.table(uniqueLines, design = "PREP"))
-    setkey(breedSim1, cohort)
-    breedSim1[c("S1", "S2"), test := "prelim", on = "cohort"][c("S3","S4"), test := "adv", on = "cohort"]
+    breedSim1prelim <-  breedSim1[c("S1", "S2"), test := "prelim", on = "cohort"]
+    breedSim1adv <- breedSim1[c("S3","S4"), test := "adv", on = "cohort"]
     
     # Assign locations to each line
     
@@ -339,19 +343,19 @@ for(i in 1:50){
     
   }
   
-# gsAcc, applies ASReml across breedSimX output ---------------------------
-
-gsAcc <- function(breedSim){
-
-  asreml.options(pworkspace = "4gb", ai.sing = TRUE, fail = "soft")
+  # gsAcc, applies ASReml across breedSimX output ---------------------------
   
-  if(unique(breedSim$design) == "PREP"){
+  gsAcc <- function(breedSim){
+    
+    asreml.options(pworkspace = "4gb", ai.sing = TRUE, fail = "soft")
+    
+    if(unique(breedSim$design) == "PREP"){
       
       print(str_c("Using PREP model: replication = ", unique(breedSim$repCat), ", macroGxE = ", unique(breedSim$macroGxE), 
                   ", MicroGxE = ", unique(breedSim$macroGxE), ", heritability = ", unique(breedSim$heritability)))
       
-      BLUP <-  asreml(fixed = phenotype ~ 1,
-                      random = ~ location/block + at(location):idv(germplasmName),
+      BLUP <-  asreml(fixed = phenotype ~ location,
+                      random = ~ location:block + at(location):idv(germplasmName),
                       residual = ~ dsum( ~ units | location),
                       workspace = "4gb",
                       data = breedSim,
@@ -359,101 +363,106 @@ gsAcc <- function(breedSim){
       
       BLUPpred <-  as_tibble(predict.asreml(BLUP, classify = "germplasmName")$pvals)
       
-  } else {
-    
-    BLUPpred <- future_map_dfr(group_split(breedSim, test), \(breedSim){
+    } else {
       
-      selectModelRCBD <- breedSim %>% filter(plotDes == "exp") %>% pull(repTotal) %>% max(.)
-      
-      if(selectModelRCBD == 1){
+      BLUPpred <- future_map_dfr(group_split(breedSim, test), \(breedSim){
         
-        print(str_c("Using RCBD model for a low replication: replication = ", unique(breedSim$repCat), ", test = ", unique(breedSim$test), ", macroGxE = ", unique(breedSim$macroGxE), 
-                    ", MicroGxE = ", unique(breedSim$macroGxE), ", heritability = ", unique(breedSim$heritability)))
+        selectModelRCBD <- breedSim %>% filter(plotDes == "exp") %>% pull(repTotal) %>% max(.)
         
-      BLUP <-  asreml(fixed = phenotype ~ 1,
-                      random = ~ location + at(location):idv(germplasmName), 
-                      residual = ~ dsum( ~ units | location),
-                      workspace = "4gb",
-                      data = breedSim,
-                      na.action = na.method(y = "omit", x = "omit"))
-      
-      } else  {
-
+        if(selectModelRCBD == 1){
+          
+          print(str_c("Using RCBD model for a low replication: replication = ", unique(breedSim$repCat), ", test = ", unique(breedSim$test), ", macroGxE = ", unique(breedSim$macroGxE), 
+                      ", MicroGxE = ", unique(breedSim$macroGxE), ", heritability = ", unique(breedSim$heritability)))
+          
+          BLUP <-  asreml(fixed = phenotype ~ location,
+                          random = ~ at(location):idv(germplasmName), 
+                          residual = ~ dsum( ~ units | location),
+                          workspace = "4gb",
+                          data = breedSim,
+                          na.action = na.method(y = "omit", x = "omit"))
+          
+        } else  {
+          
+          
+          print(str_c("Using RCBD model for high replication: replication = ", unique(breedSim$repCat), ", test = ", unique(breedSim$test), ", macroGxE = ", unique(breedSim$macroGxE), 
+                      ", MicroGxE = ", unique(breedSim$macroGxE), ", heritability = ", unique(breedSim$heritability)))
+          
+          BLUP <-  asreml(fixed = phenotype ~ location,
+                          random = ~ location:block + at(location):idv(germplasmName),
+                          residual = ~ dsum( ~ units | location),
+                          workspace = "4gb",
+                          data = breedSim,
+                          na.action = na.method(y = "omit", x = "omit"))
+          
+        }
         
-        print(str_c("Using RCBD model for high replication: replication = ", unique(breedSim$repCat), ", test = ", unique(breedSim$test), ", macroGxE = ", unique(breedSim$macroGxE), 
-                    ", MicroGxE = ", unique(breedSim$macroGxE), ", heritability = ", unique(breedSim$heritability)))
+        BLUPpred <-  as_tibble(predict.asreml(BLUP, classify = "germplasmName")$pvals)
+        return(BLUPpred)
         
-        BLUP <-  asreml(fixed = phenotype ~ 1,
-                        random = ~ location/block + at(location):idv(germplasmName),
-                        residual = ~ dsum( ~ units | location),
-                        workspace = "4gb",
-                        data = breedSim,
-                        na.action = na.method(y = "omit", x = "omit"))
-        
-      }
-      
-      BLUPpred <-  as_tibble(predict.asreml(BLUP, classify = "germplasmName")$pvals)
-      return(BLUPpred)
-      
-    })
-  }
+      })
+    }
     resultsByEntry <- breedSim %>% distinct(germplasmName, location, block, test, cohort, trueBV) %>% 
-    left_join(BLUPpred, by = c("germplasmName","location","block"))
+      left_join(BLUPpred, by = c("germplasmName")) %>% filter(cohort != "check")
+    
+    resultsOverall <- cor(resultsByEntry$predicted.value, resultsByEntry$trueBV, method = "pearson")
+    resultsOverall <- tibble(group = "overall", cor = resultsOverall, model = "BLUP") %>% 
+      bind_cols(distinct(breedSim, design, heritability, nLoc, macroGxE, microGxE, repCat))
+    
+    resultsByTest <- resultsByEntry %>%  
+      group_by(test) %>% 
+      summarize(cor(predicted.value, trueBV, method = "pearson")) %>%
+      rename("cor" = 'cor(predicted.value, trueBV, method = "pearson")', "group" = "test") %>% 
+      mutate(model = "BLUP") %>% 
+      bind_cols(distinct(breedSim, design, heritability, nLoc, macroGxE, microGxE, repCat))
+    
+    resultsByCohort <- resultsByEntry %>% 
+      group_by(cohort) %>% 
+      summarize(cor(predicted.value, trueBV, method = "pearson")) %>% 
+      rename("cor" = 'cor(predicted.value, trueBV, method = "pearson")', "group" = "cohort") %>% 
+      mutate(model = "BLUP") %>% 
+      bind_cols(distinct(breedSim, design, heritability, nLoc, macroGxE, microGxE, repCat))
+    
+    results <- bind_rows(resultsOverall, resultsByTest, resultsByCohort)
+    return(results)
+  }
   
-  resultsOverall <- cor(resultsByEntry$predicted.value, resultsByEntry$trueBV, method = "pearson")
-  resultsOverall <- tibble(group = "overall", cor = resultsOverall, model = "BLUP") %>% 
-    bind_cols(distinct(breedSim, design, heritability, nLoc, macroGxE, microGxE, repCat))
+  gsAccSafe <- safely(gsAcc)
   
-  resultsByTest <- resultsByEntry %>% filter(cohort != "check") %>% 
-    group_by(test) %>% 
-    summarize(cor(predicted.value, trueBV, method = "pearson")) %>%
-    rename("cor" = 'cor(predicted.value, trueBV, method = "pearson")', "group" = "test") %>% 
-    mutate(model = "BLUP") %>% 
-    bind_cols(distinct(breedSim, design, heritability, nLoc, macroGxE, microGxE, repCat))
+  # Upload data for input ---------------------------------------------------
   
-  resultsByCohort <- resultsByEntry %>% filter(cohort != "check") %>% 
-    group_by(cohort) %>% 
-    summarize(cor(predicted.value, trueBV, method = "pearson")) %>% 
-    rename("cor" = 'cor(predicted.value, trueBV, method = "pearson")', "group" = "cohort") %>% 
-    mutate(model = "BLUP") %>% 
-    bind_cols(distinct(breedSim, design, heritability, nLoc, macroGxE, microGxE, repCat))
+  geno <- loadRDS("geno.RData")
+  cohort <- c("S1","S2","S3","S4", "check", "check", "check")
+  design <- c(NA, NA, NA, NA, "PREP", "RCBD", "RCBD")
+  test <- c("prelim", "prelim", "adv", "adv", NA, "prelim", "adv")
+  checksPerBlockPREP <- 2
+  checksPerBlockRCBD <- 2
+  replicateLevels <- list(tibble(cohort = cohort, design = design, test = test, PREPReplicates = c(1,1,2,2,checksPerBlockPREP,NA,NA), RCBDReplicates = c(1,1,2,2,NA,checksPerBlockRCBD,checksPerBlockRCBD)), 
+                          tibble(cohort = cohort, design = design, test = test, PREPReplicates = c(2,2,2,2,checksPerBlockPREP,NA,NA), RCBDReplicates = c(2,2,2,2,NA,checksPerBlockRCBD,checksPerBlockRCBD)),
+                          tibble(cohort = cohort, design = design, test = test, PREPReplicates = c(2,2,3,3,checksPerBlockPREP,NA,NA), RCBDReplicates = c(2,2,3,3,NA,checksPerBlockRCBD,checksPerBlockRCBD)))
   
-  results <- bind_rows(resultsOverall, resultsByTest, resultsByCohort)
-  return(results)
+  # Run pipeline ------------------------------------------------------------
+  
+  breedSimResult <- breedSimX(geno = geno, nLoc = 5, macroGxE = .5, microGxE = c(.2, .4, .6, .8, 1), H2 = j)
+  
+  rm(geno, cohort, design, test, checksPerBlockPREP, checksPerBlockRCBD, replicateLevels, breedSimX)
+  
+  plan(multicore, workers = 6)
+  furrr_options(scheduling = 2L)
+  
+  allOutput <- breedSimResult %>% future_map(gsAccSafe)
+  result <- allOutput %>% future_map("result") %>% compact() %>% rbindlist() %>% mutate(iteration = i)
+  errors <- allOutput %>% future_map("error")
+  
+  write_csv(result, str_c("BLUPoutput/BLUPresults/results_", i, "_h", j, "_1-16.csv"))
+  saveRDS(errors, str_c("BLUPoutput/BLUPerrors/errors_", i, "_h", j, "_1-16.Rdata"))
+  
+  finalResultH2 <- bind_rows(finalResultH2, result)
+  
+  write_csv(finalResultH2, str_c("BLUPoutput/BLUPresults/breedSimResult_BLUP_h", j,"_1-16.csv"))
+  
 }
 
-gsAccSafe <- safely(gsAcc)
-
-# Upload data for input ---------------------------------------------------
-
-geno <- loadRDS("geno.RData")
-cohort <- c("S1","S2","S3","S4", "check", "check", "check")
-design <- c(NA, NA, NA, NA, "PREP", "RCBD", "RCBD")
-test <- c("prelim", "prelim", "adv", "adv", NA, "prelim", "adv")
-checksPerBlockPREP <- 2
-checksPerBlockRCBD <- 2
-replicateLevels <- list(tibble(cohort = cohort, design = design, test = test, PREPReplicates = c(1,1,2,2,checksPerBlockPREP,NA,NA), RCBDReplicates = c(1,1,2,2,NA,checksPerBlockRCBD,checksPerBlockRCBD)), 
-                        tibble(cohort = cohort, design = design, test = test, PREPReplicates = c(2,2,2,2,checksPerBlockPREP,NA,NA), RCBDReplicates = c(2,2,2,2,NA,checksPerBlockRCBD,checksPerBlockRCBD)),
-                        tibble(cohort = cohort, design = design, test = test, PREPReplicates = c(2,2,3,3,checksPerBlockPREP,NA,NA), RCBDReplicates = c(2,2,3,3,NA,checksPerBlockRCBD,checksPerBlockRCBD)))
-
-# Run pipeline ------------------------------------------------------------
-
-breedSimResult <- breedSimX(geno = geno, nLoc = 5, macroGxE = .5, microGxE = c(.2, .4, .6, .8, 1), H2 = c(.2,.4,.6,.8))
-
-rm(geno, cohort, design, test, checksPerBlockPREP, checksPerBlockRCBD, replicateLevels, breedSimX)
-
-plan(multicore, workers = 6)
-furrr_options(scheduling = 2L)
-
-allOutput <- breedSimResult %>% future_map(gsAccSafe)
-result <- allOutput %>% future_map("result") %>% compact() %>% rbindlist() %>% mutate(iteration = i)
-errors <- allOutput %>% future_map("error")
-
-write_csv(result, str_c("BLUPoutput/BLUPresults/results_", i, ".csv"))
-saveRDS(errors, str_c("BLUPoutput/BLUPerrors/errors_", i, ".Rdata"))
-
-result <- bind_rows(finalResults,result)
+finalResult <- bind_rows(finalResult, finalResultH2)
+write_csv(finalResult, "BLUPoutput/BLUPfinal/breedSimResult_BLUP_1-16.csv")
 
 }
-
-write_csv(finalResults, "BLUPoutput/BLUPresults/breedSimResult_BLUP.csv")
