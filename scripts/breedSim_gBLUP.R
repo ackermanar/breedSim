@@ -29,6 +29,7 @@ for(i in 1:50){
   breedSimX <- function(geno, nLoc, macroGxE, microGxE, H2) {
     
     # Add cohort and plot designation to geno names
+    # Update this portion relative to your GBS data structure
     
     uniqueLines <- data.table(germplasmName = row.names(geno))
     
