@@ -1,7 +1,7 @@
 # This code generates RCBD and PREP trials, populated by lines with breeding values 
 # generated from simulated marker effects from actual wheat GBS data, and tests
 # asREML GS accuracies on resulting phenotypes. Wrote by AJ Ackerman. 
-# Last edited on 
+# Not used in final manuscript
 
 library(R.filesets)
 library(MBESS)
