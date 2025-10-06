@@ -5,7 +5,7 @@
 
 ## Overview
 
-This repository contains simulation code and analysis scripts for evaluating how experimental design impacts prediction accuracy in plant breeding programs. The study demonstrates that randomizing breeding materials across cohorts improves selection accuracy compared to traditional cohort-separated trials, particularly when data is incomplete or sparse.
+This repository contains simulation code and analysis scripts for evaluating how experimental design impacts prediction accuracy in plant breeding programs. The study demonstrates that randomizing breeding materials across cohorts improves selection accuracy compared to traditional cohort-separated trials, particularly when data is incomplete or sparse. An extensive user guide for user implementation can be found in docs/simulations_parameters_and_specifications_guide.md and .pdf.
 
 **Key Finding**: Complete randomization (CR) across breeding cohorts outperforms restricted randomization (RR) by up to 15.7% when phenotypic or genomic data is limited, though both designs perform equivalently with complete genomic and phenotypic datasets.
 
