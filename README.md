@@ -40,8 +40,8 @@ We compared two randomization strategies:
 │   ├── geno.RData                          # Genotypic data matrix (not included - see Data Availability)
 │   └── K2.RData                            # Genomic relationship matrix (generated from geno.RData)
 ├── docs/
-│   ├── simulation_parameters.md            # Detailed parameter specifications
-│   └── results_summary.md                  # Key findings summary
+│   ├── simulations_parameters_and_specifications_guide.md            # Detailed parameter specifications
+│   └── results_summary.md                                            # Key findings summary
 ├── output/
 │   ├── BLUPoutput/                        # Conventional selection results
 │   ├── gBLUPoutput/                       # Genomic selection results (balanced)
