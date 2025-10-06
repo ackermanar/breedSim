@@ -1,7 +1,6 @@
 # This code generates RCBD and PREP trials, populated by lines with breeding values 
 # generated from simulated marker effects from actual wheat GBS data, and tests
 # asREML GS accuracies on resulting phenotypes. Wrote by AJ Ackerman. 
-# Last edited on 
 
 library(R.filesets)
 library(MBESS)
@@ -68,7 +67,7 @@ for(i in 1:50){
     breedSim3 <- replicate(length(replicateLevels), breedSim2, simplify = FALSE) # Replicate breedSim df for each level of corresponding replication
     
     PREPreps <- map(replicateLevels, ~{
-      select(.x, -c(RCBDReplicates,design,test)) %>% 
+      dplyr::select(.x, -c(RCBDReplicates,design,test)) %>% 
         drop_na(PREPReplicates) %>% 
         rename(repTotal = PREPReplicates)
     }) # Extract PREP replication from replicateLevels
@@ -106,10 +105,10 @@ for(i in 1:50){
     }) # Name each list object for corresponding replication level
     
     RCBDReps <- map(replicateLevels, ~{
-      select(.x, -PREPReplicates) %>% 
+      dplyr::select(.x, -PREPReplicates) %>% 
         drop_na(test) %>% 
         rename(repTotal = RCBDReplicates) %>% 
-        select(-design)
+        dplyr::select(-design)
     }) # Extract RCBD replication from replicateLevels
     
     breedSim3RCBDexp <- map2(breedSim3, RCBDReps, ~{
@@ -279,8 +278,8 @@ for(i in 1:50){
       bvRCBD[, c("location","test") := tstrsplit(loc_test, "_")][,design := "RCBD"][, block := NA][, loc_test := NULL][, trueBV := mean(bv), by = germplasmName] 
       
       bvPREP <- data.table((geno %*% covPREP), keep.rownames = "germplasmName") |>
-                setnames(old = 1:ncol(covPREP)+1, rep(str_c(rep(seq_len(nLoc), each = max(breedSim$repTotal)), "_", rep(1:max(breedSim$repTotal), times = max(nLoc))))) |>
-                melt(id.vars = "germplasmName", variable.name = "loc_block", variable.factor = TRUE, value.name = "bv")
+        setnames(old = 1:ncol(covPREP)+1, rep(str_c(rep(seq_len(nLoc), each = max(breedSim$repTotal)), "_", rep(1:max(breedSim$repTotal), times = max(nLoc))))) |>
+        melt(id.vars = "germplasmName", variable.name = "loc_block", variable.factor = TRUE, value.name = "bv")
       
       bvPREP[, c("location","block") := tstrsplit(loc_block, "_")][,design := "PREP"][, test := NA][, loc_block := NULL][, trueBV := mean(bv), by = germplasmName] 
       
@@ -354,9 +353,10 @@ for(i in 1:50){
       BLUPpred <-  as_tibble(predict.asreml(BLUP, classify = "germplasmName")$pvals)
       
 
-  resultsByEntry <- breedSim %>% distinct(germplasmName, test, cohort, trueBV) %>% 
-  left_join(BLUPpred, by = "germplasmName") %>% 
-    filter(cohort != "check") 
+  resultsByEntry <- breedSim %>% filter(cohort != "check") %>% 
+      distinct(germplasmName, .keep_all = TRUE) %>% 
+      left_join(BLUPpred, by = c("germplasmName")) %>%
+      dplyr::select(-c(location, block, bv))
   
   resultsOverall <- cor(resultsByEntry$predicted.value, resultsByEntry$trueBV, method = "pearson")
   resultsOverall <- tibble(group = "overall", cor = resultsOverall, model = "gBLUP") %>% 
@@ -393,17 +393,10 @@ replicateLevels <- list(tibble(cohort = cohort, design = design, test = test, PR
 
 # Run pipeline ------------------------------------------------------------
 
-breedSimResult <- breedSimX(geno = geno, nLoc = 5, macroGxE = .5, microGxE = c(.25, .5, .75, 1), H2 = .5)
+breedSimResult <- breedSimX(geno = geno, nLoc = 5, macroGxE = .5, microGxE = c(.2, .4, .6, .8, 1), H2 = c(.2,.4,.6,.8))
 
 rm(geno, cohort, design, test, checksPerBlockPREP, checksPerBlockRCBD, replicateLevels, breedSimX)
 
-  plan(multicore, workers = 4)
-  furrr_options(scheduling = 2L)
-  
-  K2 <- loadRDS("K2.RData")
-
-  rm(geno, cohort, design, test, checksPerBlockPREP, checksPerBlockRCBD, replicateLevels, breedSimX)
-  
   plan(multicore, workers = 4)
   furrr_options(scheduling = 2L)
   
@@ -413,12 +406,12 @@ rm(geno, cohort, design, test, checksPerBlockPREP, checksPerBlockRCBD, replicate
   result <- allOutput %>% future_map("result") %>% compact() %>% rbindlist() %>% mutate(iteration = i)
   errors <- allOutput %>% future_map("error")
 
-write_csv(result, str_c("gBLUPoutput/gBLUPresults/gBLUPresultsV2_", i, ".csv"))
-saveRDS(errors, str_c("gBLUPoutput/gBLUPerrors/gBLUPerrorsV2_", i, ".Rdata"))
+write_csv(result, str_c("gBLUPoutput/gBLUPresults/gBLUPresultsV2_12-21_", i, ".csv"))
+saveRDS(errors, str_c("gBLUPoutput/gBLUPerrors/gBLUPerrorsV2_12-21_", i, ".Rdata"))
 
 finalResult <- bind_rows(finalResult,result)
 
-write_csv(finalResult, "gBLUPoutput/gBLUPresults_final/breedSimResult_gBLUP_allIterationsV2_9-15.csv")
+write_csv(finalResult, "gBLUPoutput/gBLUPresults_final/breedSimResult_gBLUP_allIterationsV2_12-21.csv")
 
 }
 
