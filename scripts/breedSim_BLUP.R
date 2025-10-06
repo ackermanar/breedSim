@@ -1,7 +1,6 @@
 # This code generates RCBD and PREP trials, populated by lines with breeding values 
 # generated from simulated marker effects from actual wheat GBS data, and tests
 # asREML conventional selection accuracies on resulting phenotypes. Wrote by AJ Ackerman. 
-# Last edited on 
 
 library(R.filesets)
 library(MBESS)
@@ -35,9 +34,10 @@ for(i in 1:450){
   breedSimX <- function(geno, nLoc, macroGxE, microGxE, H2) {
     
     # Add cohort and plot designation to geno names
+    # Update this portion relative to your GBS data structure
     
     uniqueLines <- data.table(germplasmName = row.names(geno))
-    
+
     uniqueLines[, plotDes := "check"][
       str_which(germplasmName, "^18-"), plotDes := "exp"][
         str_which(germplasmName, "^19-"), plotDes := "exp"][
